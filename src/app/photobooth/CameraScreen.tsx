@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, CameraOff, Images, RefreshCw, SwitchCamera, Zap, ZapOff } from "lucide-react";
+import { ArrowLeft, CameraOff, Images, RefreshCw, SwitchCamera, Timer, TimerOff, Zap, ZapOff } from "lucide-react";
 import { FilterOverlay, filterStyle } from "@/components/FilterPicker";
 import type { FilterId, GuestSession, WeddingEvent } from "@/lib/api";
 import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
@@ -29,12 +29,22 @@ function timeLeft(closesAt: string, now: number) {
   return `${m} mnt tersisa`;
 }
 
-/** Every pose gets a 3-2-1 countdown after the guest presses the shutter. */
-const COUNTDOWN_SEC = 3;
+/** Self-timer choices (seconds, 0 = shoot right away); the last choice is kept per phone. */
+const TIMER_OPTIONS = [0, 3, 5, 10] as const;
+const TIMER_KEY = "nakha_timer";
+
+function readTimer(): number {
+  try {
+    const v = Number(localStorage.getItem(TIMER_KEY));
+    return (TIMER_OPTIONS as readonly number[]).includes(v) ? v : 3;
+  } catch {
+    return 3;
+  }
+}
 
 /**
  * Full-screen camera for one photobooth session: the guest presses the shutter
- * for each pose (3-2-1 countdown, then the shot), a mini 2×2 grid shows the
+ * for each pose (optional self-timer, then the shot), a mini 2×2 grid shows the
  * collage filling up. Square viewfinder = exactly what lands in the collage.
  */
 export default function CameraScreen({
@@ -78,6 +88,20 @@ export default function CameraScreen({
   const [zoom, setZoom] = useState(1);
   const [flashOn, setFlashOn] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [timer, setTimer] = useState(3);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after mount
+    setTimer(readTimer());
+  }, []);
+  const cycleTimer = () => {
+    const next = TIMER_OPTIONS[(TIMER_OPTIONS.indexOf(timer as (typeof TIMER_OPTIONS)[number]) + 1) % TIMER_OPTIONS.length];
+    setTimer(next);
+    try {
+      localStorage.setItem(TIMER_KEY, String(next));
+    } catch {
+      /* private mode */
+    }
+  };
   const [screenFlash, setScreenFlash] = useState(false);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(0); // set after mount: keeps server and client HTML identical
@@ -180,7 +204,7 @@ export default function CameraScreen({
   const capture = async () => {
     if (busy || state !== "on") return;
     setBusy(true);
-    for (let n = COUNTDOWN_SEC; n > 0; n--) {
+    for (let n = timer; n > 0; n--) {
       setCountdown(n);
       await sleep(1000);
     }
@@ -268,6 +292,16 @@ export default function CameraScreen({
             aria-pressed={flashOn}
           >
             {flashOn ? <Zap /> : <ZapOff />}
+          </button>
+
+          <button
+            className={`${styles.round} ${styles.timerBtn} ${timer ? styles.on : ""}`}
+            onClick={cycleTimer}
+            disabled={busy}
+            aria-label={timer ? `Timer ${timer} detik` : "Timer mati"}
+          >
+            {timer ? <Timer /> : <TimerOff />}
+            {timer > 0 && <small>{timer}</small>}
           </button>
 
           <div className={styles.zoom} role="radiogroup" aria-label="Zoom">

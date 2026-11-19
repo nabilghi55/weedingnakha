@@ -134,7 +134,9 @@ func (e Event) Kind() string {
 var Filters = map[string]bool{
 	"none": true, "bw": true, "classic": true, "vintage": true, "softflash": true,
 	// disposable-camera looks
+	"goldenhour": true, "rose": true, "pastel": true, "cool": true, "moody": true, "noir": true,
 	"disposable": true, "nightflash": true, "film400": true, "lightleak": true, "disposablebw": true,
+	"instant": true, "expired": true, "crossprocess": true, "faded": true,
 	"warm": true, "film": true, "mono": true, "soft": true,
 }
 
