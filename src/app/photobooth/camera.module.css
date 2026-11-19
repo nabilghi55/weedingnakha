@@ -428,6 +428,29 @@
   background: #fff;
 }
 
+/* shutter blink on every shot: full white, fading fast like a camera flash */
+.shutterBlink {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  background: #fff;
+  pointer-events: none;
+  animation: shutter-blink 0.42s ease-out forwards;
+}
+
+@keyframes shutter-blink {
+  0% {
+    opacity: 1;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+
 @media (max-height: 640px) {
   .counter,
   .last {

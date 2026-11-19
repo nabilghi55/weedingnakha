@@ -103,6 +103,10 @@ export default function CameraScreen({
     }
   };
   const [screenFlash, setScreenFlash] = useState(false);
+  // shutter feedback on every shot: white blink + viewport "snap" (key restarts the animation)
+  const [shotFx, setShotFx] = useState(0);
+  const audioRef = useRef<AudioContext | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(0); // set after mount: keeps server and client HTML identical
 
@@ -198,11 +202,31 @@ export default function CameraScreen({
     const snap = takeSnapshot(video, facing === "user", digitalZoom, poseAspect);
     if (useTorch && track) track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => undefined);
     setScreenFlash(false);
+    // shutter: blink + click sound + short buzz (Android; iOS has no web vibration)
+    setShotFx(Date.now());
+    // small "snap" of the preview (Web Animations: the <video> is not re-mounted)
+    viewportRef.current?.animate([{ transform: "scale(0.94)" }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" });
+    playShutter(audioRef.current);
+    try {
+      navigator.vibrate?.(40);
+    } catch {
+      /* not supported */
+    }
+    // let the blink be seen before the screen moves on (the last pose opens the result)
+    await sleep(420);
     onCapture(snap);
   }, [digitalZoom, facing, flashOn, onCapture, torch, poseAspect]);
 
   const capture = async () => {
     if (busy || state !== "on") return;
+    // audio must be unlocked inside the tap itself (iOS), before the timer's awaits
+    try {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AC && !audioRef.current) audioRef.current = new AC();
+      void audioRef.current?.resume();
+    } catch {
+      /* no audio */
+    }
     setBusy(true);
     for (let n = timer; n > 0; n--) {
       setCountdown(n);
@@ -239,6 +263,7 @@ export default function CameraScreen({
 
       <div className={styles.viewArea}>
         <div
+          ref={viewportRef}
           className={styles.viewport}
           // preview has the exact shape of the frame window this pose fills
           style={{ width: `min(100cqw, ${(100 * poseAspect).toFixed(2)}cqh)`, aspectRatio: String(poseAspect) }}
@@ -393,6 +418,35 @@ export default function CameraScreen({
       </footer>
 
       {screenFlash && <div className={styles.screenFlash} />}
+      {shotFx > 0 && <div key={shotFx} className={styles.shutterBlink} aria-hidden="true" />}
     </div>
   );
+}
+
+/** Short camera-shutter click: two filtered noise bursts (no audio file needed). */
+function playShutter(ctx: AudioContext | null) {
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const burst = (at: number, dur: number, gain: number, freq: number) => {
+      const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = freq;
+      bp.Q.value = 0.8;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      src.connect(bp).connect(g).connect(ctx.destination);
+      src.start(now + at);
+    };
+    burst(0, 0.045, 0.9, 2400);
+    burst(0.07, 0.06, 0.6, 1400);
+  } catch {
+    /* ignore */
+  }
 }
