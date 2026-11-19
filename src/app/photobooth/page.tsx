@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Camera, CheckCircle2, Clock, Download, Images, MapPin, MessageSquare, QrCode, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { api, ApiError, putFile, type FilterId, type GuestSession, type LocationFix } from "@/lib/api";
+import { api, ApiError, photoSrc, putFile, type FilterId, type GuestSession, type LocationFix } from "@/lib/api";
 import { getDeviceId, getPosition, LocationError, OUTSIDE_AREA_MESSAGE } from "@/lib/guest";
 import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
-import { COLLAGE_POSES, ensureFrameFonts, renderCollage } from "@/lib/frames";
+import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, loadCustomFrame, renderCollage } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
 import { BRAND } from "@/lib/brand";
 import CameraScreen from "./CameraScreen";
@@ -93,6 +93,29 @@ export default function PhotoboothPage() {
   const [sharing, setSharing] = useState(false);
   const [shareMsg, setShareMsg] = useState("");
 
+  // poses per session: one per window of the event's own frame (else the 2×2 collage)
+  const [poses, setPoses] = useState(COLLAGE_POSES);
+  const [aspects, setAspects] = useState<number[]>(() => Array.from({ length: COLLAGE_POSES }, () => 1));
+  useEffect(() => {
+    let alive = true;
+    if (!event.frameUrl) {
+      clearCustomFrame();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mirrors the event's frame setting
+      setPoses(COLLAGE_POSES);
+      setAspects(collageAspects());
+      return;
+    }
+    loadCustomFrame(photoSrc(event.frameUrl)).then((ok) => {
+      if (!alive) return;
+      if (!ok) clearCustomFrame();
+      setPoses(collagePoses());
+      setAspects(collageAspects());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [event.frameUrl]);
+
   // remembered name from an earlier session on this phone
   useEffect(() => {
     const saved = readName();
@@ -176,7 +199,7 @@ export default function PhotoboothPage() {
 
   // Compose the collage whenever the poses or the filter change.
   useEffect(() => {
-    if (stage === "intro" || stage === "shoot" || shots.length < COLLAGE_POSES) return;
+    if (stage === "intro" || stage === "shoot" || shots.length < poses) return;
     let alive = true;
     ensureFrameFonts().then(() => {
       if (!alive) return;
@@ -186,7 +209,7 @@ export default function PhotoboothPage() {
     return () => {
       alive = false;
     };
-  }, [stage, shots, filter, event]);
+  }, [stage, shots, filter, event, poses]);
 
   const remaining = session?.remaining ?? 0;
 
@@ -223,9 +246,9 @@ export default function PhotoboothPage() {
       const n = shots.length + 1;
       setShots((s) => [...s, snap]);
       setThumbs((t) => [...t, thumb]);
-      if (n >= COLLAGE_POSES) setStage("result");
+      if (n >= poses) setStage("result");
     },
-    [retakeIdx, shots.length],
+    [retakeIdx, shots.length, poses],
   );
 
   const retakePose = (i: number) => {
@@ -282,7 +305,7 @@ export default function PhotoboothPage() {
   /** Uploads the collage (one photo of the device quota). */
   const post = async (freshFix?: LocationFix) => {
     const name = guestName.trim();
-    if (!session || !name || remaining <= 0 || shots.length < COLLAGE_POSES || posting) return;
+    if (!session || !name || remaining <= 0 || shots.length < poses || posting) return;
     saveName(name);
     setError("");
     setLocIssue(false);
@@ -411,7 +434,7 @@ export default function PhotoboothPage() {
               <li>
                 <span>1</span>
                 <div>
-                  <strong>Bergaya {COLLAGE_POSES} pose</strong>
+                  <strong>Bergaya {poses} pose</strong>
                   <small>Tekan tombol, hitung mundur 3 detik, cekrek!</small>
                 </div>
               </li>
@@ -481,7 +504,8 @@ export default function PhotoboothPage() {
         filter={filter}
         onFilter={setFilter}
         shotCount={shots.length}
-        rollSize={COLLAGE_POSES}
+        rollSize={poses}
+        aspects={aspects}
         retakeIndex={retakeIdx}
         thumbs={thumbs}
         onCapture={onCapture}

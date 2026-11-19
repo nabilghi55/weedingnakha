@@ -44,6 +44,7 @@ export default function CameraScreen({
   onFilter,
   shotCount,
   rollSize,
+  aspects,
   retakeIndex,
   thumbs,
   onCapture,
@@ -55,6 +56,8 @@ export default function CameraScreen({
   onFilter: (f: FilterId) => void;
   shotCount: number;
   rollSize: number;
+  /** width/height of each pose (the event frame's windows); square when absent */
+  aspects?: number[];
   /** set while re-shooting one pose of the collage */
   retakeIndex: number | null;
   /** one thumbnail per pose taken so far (index = pose) */
@@ -63,6 +66,8 @@ export default function CameraScreen({
   /** leave a retake without shooting (back to the result) */
   onCancel?: () => void;
 }) {
+  // shape of the frame window the next (or retaken) pose fills
+  const poseAspect = aspects?.[retakeIndex ?? shotCount] ?? 1;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [facing, setFacing] = useState<"user" | "environment">("user");
@@ -166,11 +171,11 @@ export default function CameraScreen({
       setScreenFlash(true);
       await sleep(280);
     }
-    const snap = takeSnapshot(video, facing === "user", digitalZoom, 1);
+    const snap = takeSnapshot(video, facing === "user", digitalZoom, poseAspect);
     if (useTorch && track) track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => undefined);
     setScreenFlash(false);
     onCapture(snap);
-  }, [digitalZoom, facing, flashOn, onCapture, torch]);
+  }, [digitalZoom, facing, flashOn, onCapture, torch, poseAspect]);
 
   const capture = async () => {
     if (busy || state !== "on") return;
@@ -209,7 +214,11 @@ export default function CameraScreen({
       </header>
 
       <div className={styles.viewArea}>
-        <div className={`${styles.viewport} ${styles.square}`}>
+        <div
+          className={styles.viewport}
+          // preview has the exact shape of the frame window this pose fills
+          style={{ width: `min(100cqw, ${(100 * poseAspect).toFixed(2)}cqh)`, aspectRatio: String(poseAspect) }}
+        >
           <video
             ref={videoRef}
             autoPlay

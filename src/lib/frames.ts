@@ -31,9 +31,75 @@ export const CUSTOM_FRAME: FrameDef = {
   swatch: "var(--accent-soft)",
 };
 
-let custom: { url: string; img: HTMLImageElement } | null = null;
+/** A transparent window in the organiser's frame, in the PNG's natural pixels. */
+interface Hole {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
-/** Loads (once) the event's custom frame so renderFrame can draw it synchronously. */
+let custom: { url: string; img: HTMLImageElement; holes: Hole[] } | null = null;
+
+/** Most photo windows a custom frame may have (more = the PNG is not a photo frame). */
+const MAX_HOLES = 6;
+
+/**
+ * Finds the transparent windows of a frame PNG: connected areas of (near)
+ * transparent pixels covering at least 1.5% of the image, ordered top→bottom,
+ * then left→right. Runs on a downscaled copy, so it is fast even for 4K PNGs.
+ */
+function detectHoles(img: HTMLImageElement): Hole[] {
+  const scale = Math.min(1, 300 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true })!;
+  g.drawImage(img, 0, 0, w, h);
+  let data: Uint8ClampedArray;
+  try {
+    data = g.getImageData(0, 0, w, h).data;
+  } catch {
+    return []; // tainted canvas (cross-origin without CORS)
+  }
+  const clear = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) clear[i] = data[i * 4 + 3] < 40 ? 1 : 0;
+
+  const seen = new Uint8Array(w * h);
+  const holes: (Hole & { area: number })[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < w * h; start++) {
+    if (!clear[start] || seen[start]) continue;
+    let minX = w, minY = h, maxX = 0, maxY = 0, area = 0;
+    stack.push(start);
+    seen[start] = 1;
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % w;
+      const y = (i - x) / w;
+      area++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (x > 0 && clear[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack.push(i - 1); }
+      if (x < w - 1 && clear[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack.push(i + 1); }
+      if (y > 0 && clear[i - w] && !seen[i - w]) { seen[i - w] = 1; stack.push(i - w); }
+      if (y < h - 1 && clear[i + w] && !seen[i + w]) { seen[i + w] = 1; stack.push(i + w); }
+    }
+    if (area >= w * h * 0.015) {
+      holes.push({ x: minX / scale, y: minY / scale, w: (maxX - minX + 1) / scale, h: (maxY - minY + 1) / scale, area });
+    }
+  }
+  if (holes.length > MAX_HOLES) return [];
+  // reading order: rows (centres within half a hole height) top→bottom, then left→right
+  holes.sort((a, b) => (Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) < Math.min(a.h, b.h) / 2 ? a.x - b.x : a.y - b.y));
+  return holes.map(({ x, y, w, h }) => ({ x, y, w, h }));
+}
+
+/** Loads (once) the event's custom frame so the renderers can draw it synchronously. */
 export function loadCustomFrame(url: string): Promise<boolean> {
   if (custom?.url === url) return Promise.resolve(true);
   return new Promise((resolve) => {
@@ -41,12 +107,28 @@ export function loadCustomFrame(url: string): Promise<boolean> {
     img.crossOrigin = "anonymous"; // keep the canvas exportable
     img.decoding = "async";
     img.onload = () => {
-      custom = { url, img };
+      custom = { url, img, holes: detectHoles(img) };
       resolve(true);
     };
     img.onerror = () => resolve(false);
     img.src = url;
   });
+}
+
+/** Forgets the custom frame (event without one). */
+export function clearCustomFrame() {
+  custom = null;
+}
+
+/** Poses per session: one per window of the event's frame, else the 2×2 collage. */
+export function collagePoses() {
+  return custom?.holes.length || COLLAGE_POSES;
+}
+
+/** Width/height of each pose: the frame window's shape, else square cells. */
+export function collageAspects(): number[] {
+  if (custom?.holes.length) return custom.holes.map((h) => h.w / h.h);
+  return Array.from({ length: COLLAGE_POSES }, () => 1);
 }
 
 const W = 1000;
@@ -426,6 +508,8 @@ export function renderCollage(
   ev: WeddingEvent,
   { credit = true }: { credit?: boolean } = {},
 ) {
+  // the organiser's frame (with photo windows) replaces the built-in layout
+  if (custom?.holes.length) return renderFrameCollage(shots, filter);
   const CW = 1080;
   const CH = 1350;
   const P = 48;
@@ -495,5 +579,41 @@ export function renderCollage(
   // without credit the right corner stays empty: the server watermark goes there
   if (credit) aligned(ctx, BRAND.instagram.toUpperCase(), R, fy, `400 18px ${news}`, ink, "right", 3, 300);
 
+  return canvas;
+}
+
+/**
+ * Collage on the organiser's frame: each pose fills one transparent window
+ * (slightly oversized so no gap shows at the frame's edges), then the PNG is
+ * laid on top. Output is 1080 px wide at the frame's own aspect ratio.
+ */
+function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId) {
+  const { img, holes } = custom!;
+  const CW = 1080;
+  const k = CW / img.naturalWidth;
+  const CH = Math.round(img.naturalHeight * k);
+  const canvas = document.createElement("canvas");
+  canvas.width = CW;
+  canvas.height = CH;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fbebd9";
+  ctx.fillRect(0, 0, CW, CH);
+  const serif = cssVar("--font-playfair", "Georgia, serif");
+  holes.forEach((hole, i) => {
+    const bleed = Math.max(4, Math.min(hole.w, hole.h) * k * 0.02);
+    const x = hole.x * k - bleed;
+    const y = hole.y * k - bleed;
+    const w = hole.w * k + bleed * 2;
+    const h = hole.h * k + bleed * 2;
+    const shot = shots[i];
+    if (shot) {
+      drawCover(ctx, shot, filter, x, y, w, h);
+    } else {
+      ctx.fillStyle = "rgba(28,5,7,0.08)";
+      ctx.fillRect(x, y, w, h);
+      aligned(ctx, String(i + 1), x + w / 2, y + h / 2 + 36, `italic 500 110px ${serif}`, "rgba(28,5,7,0.25)", "center");
+    }
+  });
+  ctx.drawImage(img, 0, 0, CW, CH);
   return canvas;
 }
