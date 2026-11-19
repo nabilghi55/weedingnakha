@@ -1,36 +1,69 @@
-import type { Metadata } from "next";
-import { Lexend } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Cormorant_Garamond, Italiana, Playfair_Display, Plus_Jakarta_Sans, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 
-const lexend = Lexend({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-lexend",
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-jakarta",
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  weight: ["400", "500", "600", "700", "800", "900"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+// Kept for photo frames / QR cards drawn on canvas (they read --font-playfair & --font-news)
+const news = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-news",
+  weight: ["400", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+// Display face: hairline high-contrast capitals (free stand-in for Monteilga / Tomolens / Monrovia)
+const display = Italiana({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: "400",
+  display: "swap",
+});
+
+// Elegant readable serif for sub-headings & italic accents
+const elegant = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-elegant",
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Nakha Wedding | Live Guest Gallery & Book",
-  description: "Capture beautiful glowing moments together. Upload photos, apply neon filters, and leave wedding wishes instantly.",
-  keywords: "wedding, digital guestbook, neon photos, photo sharing, live slideshow",
-  authors: [{ name: "Antigravity Team" }],
+  title: "Seribu Lensa — Wedding Photobooth",
+  description:
+    "Photobooth digital oleh Seribu Lensa (@seribu.lensa) untuk pernikahan, acara kampus, dan acara perusahaan: foto tamu tampil live di galeri dan layar acara.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport: Viewport = {
+  themeColor: "#fbebd9",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="id" className={lexend.variable}>
+    <html lang="id" data-theme="maroon" className={`${jakarta.variable} ${playfair.variable} ${news.variable} ${display.variable} ${elegant.variable}`}>
       <body>
         <AppProvider>
-          <Navbar />
-          <main className="app-main">
-            {children}
-          </main>
+          <AppShell>{children}</AppShell>
         </AppProvider>
       </body>
     </html>

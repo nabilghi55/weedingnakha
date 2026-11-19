@@ -1,0 +1,23 @@
+[Unit]
+Description=Nakha Wedding (website + Go API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nakhawedding
+Group=nakhawedding
+WorkingDirectory=/opt/nakhawedding
+EnvironmentFile=/etc/nakhawedding.env
+ExecStart=/opt/nakhawedding/nakhawedding-server
+Restart=always
+RestartSec=3
+# hardening: the service can only write to its own data dir
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nakhawedding
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

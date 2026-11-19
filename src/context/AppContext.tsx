@@ -1,202 +1,297 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError, DEFAULT_EVENT, openStream, type GalleryStats, type Photo, type StreamMessage, type WeddingEvent } from "@/lib/api";
 
-export interface WeddingPhoto {
-  id: string;
-  guestName: string;
-  wishes: string;
-  photoUrl: string; // base64 or public path
-  filter: string; // e.g., 'neon-pink', 'neon-cyan', 'neon-gold', 'neon-green', 'none'
-  timestamp: string;
-}
-
-export type NeonTheme = "pink-cyber" | "cyan-future" | "gold-luxury" | "acid-lime";
+type Status = "loading" | "ready" | "offline";
+/** Whether this browser may read the current event's gallery (server decides). */
+export type GalleryAccess = "unknown" | "granted" | "denied";
 
 interface AppContextType {
-  groomName: string;
-  brideName: string;
-  eventDate: string;
-  neonTheme: NeonTheme;
-  photos: WeddingPhoto[];
-  addPhoto: (guestName: string, wishes: string, photoUrl: string, filter: string) => void;
-  deletePhoto: (id: string) => void;
-  updateEventDetails: (groom: string, bride: string, date: string) => void;
-  updateTheme: (theme: NeonTheme) => void;
-  resetToDefault: () => void;
+  event: WeddingEvent;
+  photos: Photo[];
+  status: Status;
+  galleryAccess: GalleryAccess;
+  /** Most recent photo published by the server (used for toasts). */
+  incoming: Photo | null;
+  likedIds: Set<string>;
+  toggleLike: (id: string) => void;
+  /** Apply an event's theme/names (e.g. host or Live Wall pages). */
+  setEvent: (ev: WeddingEvent) => void;
+  /** Switch the public pages to another event (e.g. after photobooth check-in). */
+  setSlug: (slug: string) => void;
+  refresh: () => Promise<void>;
+  /** Server-side totals (the list itself is paginated). */
+  galleryStats: GalleryStats;
+  hasMore: boolean;
+  loadMore: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const DEFAULT_PHOTOS: WeddingPhoto[] = [
-  {
-    id: "demo-1",
-    guestName: "Aditya & Rara",
-    wishes: "Happy wedding Rian & Salsa! Semoga sakinah mawaddah warahmah, pestanya seru banget ala neon begini! ✨🎉",
-    photoUrl: "/images/couple.png",
-    filter: "neon-pink",
-    timestamp: "10:32"
-  },
-  {
-    id: "demo-2",
-    guestName: "Budi Santoso",
-    wishes: "Happy wedding bro Rian! Akhirnya sah juga ya. Langgeng terus sampai kakek nenek! 🙏🥂",
-    photoUrl: "/images/rings.png",
-    filter: "neon-gold",
-    timestamp: "10:45"
-  },
-  {
-    id: "demo-3",
-    guestName: "Gen Z Squad",
-    wishes: "Wedding tergokil tahun ini! Konsep neonnya pecah abis! 🔥🕺💃",
-    photoUrl: "/images/guests.png",
-    filter: "neon-cyan",
-    timestamp: "11:02"
+const LIKES_KEY = "nakha_liked";
+const SLUG_KEY = "nakha_event";
+// Signed photo URLs live 15 minutes on the server; refresh well before.
+const URL_REFRESH_MS = 10 * 60 * 1000;
+// Gallery pages: first page size, and the most a refresh re-requests at once.
+const PAGE = 60;
+const MAX_RELOAD = 300;
+/** Random delay so hundreds of phones don't hit the server in the same second. */
+const jitter = (ms: number) => Math.round(Math.random() * ms);
+
+function readLiked(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(LIKES_KEY) ?? "[]"));
+  } catch {
+    return new Set();
   }
-];
+}
+
+/** Event slug from ?e=… (remembered), or the last one used on this browser. */
+function readSlug(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("e");
+    if (fromUrl && /^[a-z0-9-]{1,60}$/.test(fromUrl)) {
+      localStorage.setItem(SLUG_KEY, fromUrl);
+      return fromUrl;
+    }
+    return localStorage.getItem(SLUG_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [groomName, setGroomName] = useState("Rian");
-  const [brideName, setBrideName] = useState("Salsa");
-  const [eventDate, setEventDate] = useState("2026-08-08");
-  const [neonTheme, setNeonTheme] = useState<NeonTheme>("pink-cyber");
-  const [photos, setPhotos] = useState<WeddingPhoto[]>([]);
-  const [initialized, setInitialized] = useState(false);
+  const [event, setEventState] = useState<WeddingEvent>(DEFAULT_EVENT);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [status, setStatus] = useState<Status>("loading");
+  const [galleryAccess, setGalleryAccess] = useState<GalleryAccess>("unknown");
+  const [incoming, setIncoming] = useState<Photo | null>(null);
+  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
+  const [slug, setSlugState] = useState<string | null>(null);
+  const [galleryStats, setGalleryStats] = useState<GalleryStats>({ photos: 0, guests: 0, likes: 0 });
+  const [hasMore, setHasMore] = useState(false);
+  const loadedRef = useRef(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load from localStorage on client side
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const urlGroom = params.get("groom");
-      const urlBride = params.get("bride");
-      const urlDate = params.get("date");
-      const urlTheme = params.get("theme") as NeonTheme | null;
+  const applyEvent = useCallback((ev: WeddingEvent) => {
+    setEventState(ev);
+    document.documentElement.setAttribute("data-theme", ev.theme);
+  }, []);
 
-      const activeGroom = urlGroom || localStorage.getItem("neon_groom") || "Rian";
-      const activeBride = urlBride || localStorage.getItem("neon_bride") || "Salsa";
-      const activeDate = urlDate || localStorage.getItem("neon_date") || "2026-08-08";
-      const activeTheme = urlTheme || (localStorage.getItem("neon_theme") as NeonTheme) || "pink-cyber";
-
-      if (urlGroom) localStorage.setItem("neon_groom", urlGroom);
-      if (urlBride) localStorage.setItem("neon_bride", urlBride);
-      if (urlDate) localStorage.setItem("neon_date", urlDate);
-      if (urlTheme) localStorage.setItem("neon_theme", urlTheme);
-
-      setGroomName(activeGroom);
-      setBrideName(activeBride);
-      setEventDate(activeDate);
-      setNeonTheme(activeTheme);
-      document.documentElement.setAttribute("data-theme", activeTheme);
-      
-      const photosKey = `neon_photos_${activeGroom.toLowerCase()}_${activeBride.toLowerCase()}`;
-      const storedPhotos = localStorage.getItem(photosKey);
-      
-      if (storedPhotos) {
-        setPhotos(JSON.parse(storedPhotos));
-      } else {
-        setPhotos(DEFAULT_PHOTOS);
-        localStorage.setItem(photosKey, JSON.stringify(DEFAULT_PHOTOS));
+  /** Loads event + gallery and returns the photo list (null on failure). */
+  const load = useCallback(async (): Promise<Photo[] | null> => {
+    if (slug === null) return null;
+    try {
+      const ev = await api.getEvent(slug || undefined);
+      applyEvent(ev);
+      let list: Photo[] = [];
+      try {
+        // re-request what is already shown (fresh signed URLs), within limits
+        const res = await api.getGallery(ev.slug, { limit: Math.min(MAX_RELOAD, Math.max(PAGE, loadedRef.current)) });
+        list = res.photos;
+        loadedRef.current = list.length;
+        setHasMore(res.hasMore);
+        setGalleryStats(res.stats);
+        setGalleryAccess("granted");
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 403 || err.status === 401)) setGalleryAccess("denied");
+        else throw err;
       }
-      setInitialized(true);
+      setPhotos(list);
+      setStatus("ready");
+      return list;
+    } catch (err) {
+      // 404 for a remembered slug: that event no longer exists → forget it and
+      // fall back to the current default event
+      if (err instanceof ApiError && err.status === 404 && slug) {
+        try {
+          localStorage.removeItem(SLUG_KEY);
+        } catch {
+          /* ignore */
+        }
+        setSlugState("");
+        return null;
+      }
+      // 404 without a slug = no event published yet (e.g. right after a reset): the server is up
+      if (err instanceof ApiError && err.status === 404) {
+        setPhotos([]);
+        setGalleryAccess("denied");
+        setStatus("ready");
+        return [];
+      }
+      setStatus("offline");
+      return null;
     }
-  }, []);
+  }, [slug, applyEvent]);
 
-  // Sync theme changes to html element attribute
-  const updateTheme = useCallback((theme: NeonTheme) => {
-    setNeonTheme(theme);
-    localStorage.setItem("neon_theme", theme);
-    document.documentElement.setAttribute("data-theme", theme);
-  }, []);
+  const refresh = useCallback(async () => {
+    await load();
+  }, [load]);
 
-  const updateEventDetails = useCallback((groom: string, bride: string, date: string) => {
-    setGroomName(groom);
-    setBrideName(bride);
-    setEventDate(date);
-    localStorage.setItem("neon_groom", groom);
-    localStorage.setItem("neon_bride", bride);
-    localStorage.setItem("neon_date", date);
-
-    const photosKey = `neon_photos_${groom.toLowerCase()}_${bride.toLowerCase()}`;
-    const storedPhotos = localStorage.getItem(photosKey);
-    if (storedPhotos) {
-      setPhotos(JSON.parse(storedPhotos));
-    } else {
-      setPhotos(DEFAULT_PHOTOS);
-      localStorage.setItem(photosKey, JSON.stringify(DEFAULT_PHOTOS));
+  /** Appends the next (older) page of the gallery. */
+  const loadMore = useCallback(async () => {
+    const last = photos[photos.length - 1];
+    if (!last || !hasMore) return;
+    try {
+      const res = await api.getGallery(event.slug || slug || undefined, { limit: PAGE, before: last.id });
+      setPhotos((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const next = [...prev, ...res.photos.filter((p) => !seen.has(p.id))];
+        loadedRef.current = next.length;
+        return next;
+      });
+      setHasMore(res.hasMore);
+      setGalleryStats(res.stats);
+    } catch {
+      /* keep what is shown */
     }
+  }, [photos, hasMore, event.slug, slug]);
+
+  // resolve the slug once on the client
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only storage read on mount
+    setLikedIds(readLiked());
+    setSlugState(readSlug());
   }, []);
 
-  const addPhoto = useCallback((guestName: string, wishes: string, photoUrl: string, filter: string) => {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    
-    const newPhoto: WeddingPhoto = {
-      id: `photo-${Date.now()}`,
-      guestName: guestName || "Guest",
-      wishes: wishes || "Selamat menempuh hidup baru!",
-      photoUrl,
-      filter,
-      timestamp: timeString
+  const setSlug = useCallback((s: string) => {
+    try {
+      localStorage.setItem(SLUG_KEY, s);
+    } catch {
+      /* ignore */
+    }
+    setSlugState(s);
+  }, []);
+
+  // Initial load + realtime stream (with a polling fallback when SSE drops).
+  // Load whenever the event changes; refresh periodically to renew signed URLs.
+  useEffect(() => {
+    if (slug === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch for the resolved event
+    refresh();
+    const urlTimer = setInterval(refresh, URL_REFRESH_MS + jitter(60000));
+    return () => clearInterval(urlTimer);
+  }, [slug, refresh]);
+
+  // Realtime stream, only once the server granted gallery access.
+  useEffect(() => {
+    if (slug === null || galleryAccess !== "granted") return;
+
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    // rare full reload (event settings changed); jittered so phones don't stampede
+    const scheduleRefresh = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => void load(), 500 + jitter(5000));
+    };
+    // a new photo: fetch just that one and put it on top
+    const addPhoto = async (id: string) => {
+      await new Promise((r) => setTimeout(r, jitter(1500)));
+      try {
+        const p = await api.getPhoto(id);
+        let added = false;
+        setPhotos((prev) => {
+          if (prev.some((x) => x.id === p.id)) return prev;
+          added = true;
+          loadedRef.current = prev.length + 1;
+          return [p, ...prev];
+        });
+        if (added) setGalleryStats((s) => ({ ...s, photos: s.photos + 1 }));
+        setIncoming(p);
+      } catch {
+        /* hidden again / not visible to this viewer */
+      }
     };
 
-    setPhotos((prev) => {
-      const updated = [newPhoto, ...prev];
-      const photosKey = `neon_photos_${groomName.toLowerCase()}_${brideName.toLowerCase()}`;
-      localStorage.setItem(photosKey, JSON.stringify(updated));
-      return updated;
-    });
-  }, [groomName, brideName]);
+    const es = openStream("gallery", event.slug || slug || undefined);
+    const stopPolling = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+    es.onopen = stopPolling;
+    es.onerror = () => {
+      if (!pollRef.current) pollRef.current = setInterval(refresh, 15000);
+    };
+    es.onmessage = (e) => {
+      let msg: StreamMessage;
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      switch (msg.type) {
+        case "photo.published":
+          void addPhoto(msg.data.id);
+          break;
+        case "photo.removed":
+          if (msg.data.from === "wall") break; // only hidden on the Live Wall
+          // removed from the gallery (hidden/deleted), whether or not that page is loaded
+          setPhotos((prev) => prev.filter((p) => p.id !== msg.data.id));
+          setGalleryStats((s) => ({ ...s, photos: Math.max(0, s.photos - 1) }));
+          break;
+        case "photo.liked":
+          setPhotos((prev) => prev.map((p) => (p.id === msg.data.id ? { ...p, likes: msg.data.likes } : p)));
+          break;
+        // "photos.changed" (processing / moderation bookkeeping) is for the host
+        // dashboard; the gallery gets photo.published / photo.removed instead
+        case "event.updated":
+          scheduleRefresh();
+          break;
+      }
+    };
+    return () => {
+      es.close();
+      stopPolling();
+      if (debounce) clearTimeout(debounce);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnect only when the event or access changes
+  }, [slug, galleryAccess, event.slug]);
 
-  const deletePhoto = useCallback((id: string) => {
-    setPhotos((prev) => {
-      const updated = prev.filter((p) => p.id !== id);
-      const photosKey = `neon_photos_${groomName.toLowerCase()}_${brideName.toLowerCase()}`;
-      localStorage.setItem(photosKey, JSON.stringify(updated));
-      return updated;
-    });
-  }, [groomName, brideName]);
+  const likedRef = useRef(likedIds);
+  useEffect(() => {
+    likedRef.current = likedIds;
+  }, [likedIds]);
 
-  const resetToDefault = useCallback(() => {
-    setGroomName("Rian");
-    setBrideName("Salsa");
-    setEventDate("2026-08-08");
-    setNeonTheme("pink-cyber");
-    setPhotos(DEFAULT_PHOTOS);
-    
-    localStorage.setItem("neon_groom", "Rian");
-    localStorage.setItem("neon_bride", "Salsa");
-    localStorage.setItem("neon_date", "2026-08-08");
-    localStorage.setItem("neon_theme", "pink-cyber");
-    
-    const photosKey = "neon_photos_rian_salsa";
-    localStorage.setItem(photosKey, JSON.stringify(DEFAULT_PHOTOS));
-    document.documentElement.setAttribute("data-theme", "pink-cyber");
+  const toggleLike = useCallback((id: string) => {
+    const next = new Set(likedRef.current);
+    const undo = next.has(id);
+    if (undo) next.delete(id);
+    else next.add(id);
+    likedRef.current = next;
+    setLikedIds(next);
+    try {
+      localStorage.setItem(LIKES_KEY, JSON.stringify([...next]));
+    } catch {
+      /* storage unavailable: likes still count server-side */
+    }
+    setPhotos((ps) => ps.map((p) => (p.id === id ? { ...p, likes: Math.max(0, p.likes + (undo ? -1 : 1)) } : p)));
+    api.likePhoto(id, undo).catch(() => undefined);
   }, []);
 
-  return (
-    <AppContext.Provider
-      value={{
-        groomName,
-        brideName,
-        eventDate,
-        neonTheme,
-        photos,
-        addPhoto,
-        deletePhoto,
-        updateEventDetails,
-        updateTheme,
-        resetToDefault
-      }}
-    >
-      {initialized ? children : <div style={{ minHeight: "100vh", backgroundColor: "#070412" }} />}
-    </AppContext.Provider>
+  const value = useMemo(
+    () => ({
+      event,
+      photos,
+      status,
+      galleryAccess,
+      incoming,
+      likedIds,
+      toggleLike,
+      setEvent: applyEvent,
+      setSlug,
+      refresh,
+      galleryStats,
+      hasMore,
+      loadMore,
+    }),
+    [event, photos, status, galleryAccess, incoming, likedIds, toggleLike, applyEvent, setSlug, refresh, galleryStats, hasMore, loadMore],
   );
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {
-  const context = useContext(AppContext);
-  if (context === undefined) {
-    throw new Error("useApp must be used within an AppProvider");
-  }
-  return context;
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error("useApp must be used within an AppProvider");
+  return ctx;
 }

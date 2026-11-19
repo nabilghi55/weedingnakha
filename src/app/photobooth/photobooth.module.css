@@ -1,0 +1,960 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.stageCol {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: sticky;
+  top: calc(var(--nav-h) + 20px);
+}
+
+.viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+
+.viewportResult {
+  aspect-ratio: auto;
+  background: transparent;
+  box-shadow: var(--shadow-lg);
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.result {
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  object-fit: contain;
+  animation: fade-in 0.4s ease both;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.92rem;
+  background: var(--ink);
+}
+
+.placeholder > svg {
+  width: 40px;
+  height: 40px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.placeholder strong {
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+.guides span {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+
+.guides span:nth-child(1) {
+  top: 18px;
+  left: 18px;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+.guides span:nth-child(2) {
+  top: 18px;
+  right: 18px;
+  border-left: none;
+  border-bottom: none;
+  border-top-right-radius: 12px;
+}
+.guides span:nth-child(3) {
+  bottom: 18px;
+  left: 18px;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 12px;
+}
+.guides span:nth-child(4) {
+  bottom: 18px;
+  right: 18px;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
+}
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: #fff;
+  background: rgba(28, 5, 7, 0.35);
+  animation: count-pop 1s var(--ease) both;
+}
+
+@keyframes count-pop {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: flash 0.35s ease-out both;
+  pointer-events: none;
+}
+
+@keyframes flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 18px;
+}
+
+.controls > :first-child {
+  justify-self: end;
+}
+
+.controls > :last-child {
+  justify-self: start;
+}
+
+.timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 0;
+  background: var(--paper);
+  border: 1.5px solid var(--line-strong);
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-width: 78px;
+  justify-content: center;
+}
+
+.timer svg {
+  width: 16px;
+  height: 16px;
+}
+
+.shutter {
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  transition: transform 0.2s var(--ease);
+}
+
+.shutter span {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--accent);
+  transition: transform 0.2s var(--ease);
+}
+
+.shutter:hover span {
+  transform: scale(0.94);
+}
+
+.shutter:active {
+  transform: scale(0.92);
+}
+
+.shutter:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- Panel ---------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.groupTitle {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.frames {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.frameBtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 0;
+  text-align: left;
+  background: var(--paper);
+  border: 1.5px solid var(--line-strong);
+  transition: all 0.2s var(--ease);
+}
+
+.frameBtn:hover {
+  border-color: var(--ink);
+}
+
+.frameActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.swatch {
+  width: 40px;
+  height: 48px;
+  border-radius: 0;
+  flex-shrink: 0;
+  border: 2px solid var(--line-strong);
+}
+
+.frameText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.frameText strong {
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.frameText small {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.row > :global(.btn) {
+  flex: 1;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.posted {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.posted h2 {
+  font-size: 2rem;
+  letter-spacing: -0.035em;
+}
+
+.postedIcon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #e7f4ec;
+  color: var(--success);
+}
+
+.postedIcon svg {
+  width: 32px;
+  height: 32px;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stageCol {
+    position: static;
+  }
+}
+
+@media (max-width: 480px) {
+  /* compact 3-up frame cards on phones */
+  .frames {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .frameBtn {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 4px;
+    text-align: center;
+  }
+  .frameText small {
+    display: none;
+  }
+  .frameText strong {
+    font-size: 0.74rem;
+  }
+  .controls {
+    gap: 12px;
+  }
+  .countdown {
+    font-size: 6rem;
+  }
+}
+
+/* ---------- Roll (review & pick) ---------- */
+.roll {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shot {
+  position: relative;
+}
+
+.shotImg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  background: var(--cream);
+}
+
+.shotImg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shotActive .shotImg {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.shotNo {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  min-width: 18px;
+  padding: 1px 4px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.check {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  background: rgba(28, 5, 7, 0.35);
+  color: transparent;
+}
+
+.check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.checkOn {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.sentBadge {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 2px 0;
+  background: var(--success);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.addShot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  aspect-ratio: 3 / 4;
+  border: 1.5px dashed var(--ink);
+  color: var(--ink);
+}
+
+.addShot svg {
+  width: 20px;
+  height: 20px;
+}
+
+.addShot small {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.applyAll {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--ink);
+}
+
+.applyAll:disabled {
+  opacity: 0.4;
+  text-decoration: none;
+}
+
+/* ---------- Editor under the preview (frame + filter per photo) ---------- */
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.frameRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.frameRow::-webkit-scrollbar {
+  display: none;
+}
+
+.frameCard {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 78px;
+  padding: 0;
+}
+
+.frameThumb {
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 104px;
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  background: var(--cream);
+}
+
+.frameThumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.frameThumb > span {
+  width: 100%;
+  height: 100%;
+}
+
+.frameCard small {
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.frameCardOn .frameThumb {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.filterRow {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.filterRow::-webkit-scrollbar {
+  display: none;
+}
+
+.filterRow :global(.chip) {
+  flex-shrink: 0;
+}
+
+/* "Semua tamu adalah Fotografer" under the headline */
+.tagline {
+  margin-top: 14px !important;
+  font-family: var(--serif);
+  font-size: clamp(1.3rem, 3.4vw, 1.6rem) !important;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--accent) !important;
+}
+
+.privacy {
+  max-width: 520px;
+  margin: 20px auto 0;
+  text-align: center;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.credit {
+  margin-top: 8px !important;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
+}
+
+.credit strong {
+  color: var(--ink-3);
+}
+
+.credit a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+/* the "scan QR" gate: a wine panel with an arch window, like the brand posts */
+.gate {
+  position: relative;
+  overflow: hidden;
+  background: var(--accent) !important;
+  border: none !important;
+  color: var(--ivory);
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.gate::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  bottom: -40px;
+  width: min(78%, 420px);
+  transform: translateX(-50%);
+  border: 1px solid rgba(251, 235, 217, 0.22);
+  border-radius: 999px 999px 0 0;
+  pointer-events: none;
+}
+
+.gate > * {
+  position: relative;
+}
+
+.gate h3 {
+  color: var(--ivory);
+}
+
+.gate p {
+  color: rgba(251, 235, 217, 0.78) !important;
+}
+
+.gate :global(.empty-icon) {
+  background: var(--ivory);
+  color: var(--accent);
+  box-shadow: 0 0 0 5px var(--accent), 0 0 0 6px rgba(251, 235, 217, 0.4);
+}
+
+.gate :global(.btn-secondary),
+.gate :global(.btn-primary) {
+  background: var(--ivory);
+  border-color: var(--ivory);
+  color: var(--accent);
+}
+
+.gate :global(.btn-secondary):hover,
+.gate :global(.btn-primary):hover {
+  background: transparent;
+  color: var(--ivory);
+}
+
+.gateSpark {
+  position: absolute !important;
+  font-size: 1.1rem;
+  color: var(--ivory);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.howToHead {
+  margin: clamp(36px, 6vw, 56px) 0 16px;
+  text-align: center;
+}
+
+.howToHead h2 {
+  font-size: clamp(1.7rem, 4.6vw, 2.5rem);
+}
+
+/* wider than the narrow column so the text inside the illustrations stays legible */
+.howTo {
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(860px, calc(100vw - var(--gutter) * 2));
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(12px, 2vw, 22px);
+  margin: 0;
+  padding: 0;
+}
+
+.howTo li {
+  list-style: none;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: #fbf3ec;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.howTo img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 900 / 1124;
+}
+
+.howToSwipe {
+  display: none;
+}
+
+/* phones: swipeable carousel, one big card at a time */
+@media (max-width: 700px) {
+  .howTo {
+    left: auto;
+    transform: none;
+    width: auto;
+    margin-inline: calc(var(--gutter) * -1);
+    padding: 4px var(--gutter) 10px;
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--gutter);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .howTo::-webkit-scrollbar {
+    display: none;
+  }
+  .howTo li {
+    flex: 0 0 84%;
+    scroll-snap-align: start;
+  }
+  .howToSwipe {
+    display: block;
+    margin-top: 6px;
+    text-align: center;
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
+
+/* phones: the send action stays reachable while choosing frames & filters */
+.sendBar {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .sendBar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    z-index: 75;
+    display: block;
+    padding: 10px 16px;
+    background: var(--ivory);
+    border-top: 1px solid var(--line-strong);
+    box-shadow: 0 -8px 24px -16px rgba(0, 0, 0, 0.35);
+  }
+  /* room so the bar never covers the last controls */
+  .layout {
+    padding-bottom: 76px;
+  }
+}
+
+/* ---------- Photobooth session: intro, collage result ---------- */
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.steps li > span {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--ivory);
+  font-family: var(--serif);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.steps li div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.steps strong {
+  font-size: 1rem;
+}
+
+.steps small {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.label {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.collageWrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.collage {
+  width: auto;
+  max-width: min(100%, 440px);
+  height: auto;
+  /* phones: keep the send button above the fold */
+  max-height: 46svh;
+  box-shadow: var(--shadow-lg);
+  animation: fade-in 0.4s ease both;
+}
+
+.collageLoading {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 440px;
+  aspect-ratio: 4 / 5;
+  background: var(--cream);
+}
+
+.sendCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  align-self: center;
+  padding: 6px 4px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.linkBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.linkBtn:disabled {
+  opacity: 0.4;
+}
+
+.inlineLink {
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tweak {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.retakeRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.retakeBtn {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--line-strong);
+  background: var(--cream);
+}
+
+.retakeBtn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.retakeBtn span {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 0;
+  background: rgba(28, 5, 7, 0.72);
+  color: var(--paper);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.retakeBtn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.centerText {
+  text-align: center;
+}

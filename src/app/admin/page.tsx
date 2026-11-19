@@ -1,1316 +1,1071 @@
 "use client";
 
-import { useApp, NeonTheme } from "@/context/AppContext";
-import NeonCard from "@/components/NeonCard";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  History,
+  ImagePlus,
+  Images,
+  KeyRound,
+  LayoutDashboard,
+  Lock,
+  LogOut,
+  Plus,
+  Settings2,
+  Share2,
+  Star,
+  Trash2,
+} from "lucide-react";
+import { useApp } from "@/context/AppContext";
+import { CopyRow, fromLocalInput, LiveQrPanel, PhotoModeration, STATUS_LABEL, StatsGrid, toLocalInput } from "@/components/EventPanels";
+import {
+  api,
+  ApiError,
+  downloadAdminZip,
+  photoSrc,
+  setAdminKey,
+  type AdminEvent,
+  type AuditEntry,
+  type EventInput,
+  type EventStats,
+  type EventStatus,
+  type EventType,
+  type GalleryVisibility,
+  type ModerationMode,
+  type Photo,
+} from "@/lib/api";
+import { THEMES } from "@/lib/filters";
+import { canvasToBlob, preparePhoto, readFileAsDataUrl } from "@/lib/image";
+import { COVER_STYLES, coverCanvas, type CoverStyle } from "@/lib/coverart";
+import { useOrigin } from "@/lib/useOrigin";
+import styles from "./admin.module.css";
+import { EVENT_TYPES, eventName, eventTypeName, isWedding } from "@/lib/format";
+
+type Tab = "overview" | "moderation" | "settings" | "access" | "audit";
+
+/**
+ * The console is only reachable at its secret URL (/<ADMIN_PATH>/, see
+ * ADMIN_PATH in backend/.env). The key is the first path segment; the API
+ * answers 404 to a wrong key, and then this page looks like any missing page.
+ */
+function adminKeyFromLocation() {
+  const seg = window.location.pathname.split("/").filter(Boolean)[0] ?? "";
+  return /^[A-Za-z0-9_-]{16,64}$/.test(seg) ? seg : "";
+}
 
 export default function AdminPage() {
-  const {
-    groomName,
-    brideName,
-    eventDate,
-    neonTheme,
-    photos,
-    deletePhoto,
-    updateEventDetails,
-    updateTheme,
-    resetToDefault,
-  } = useApp();
+  const [authed, setAuthed] = useState<boolean | null | "hidden">(null);
 
-  // Navigation tab state
-  const [activeTab, setActiveTab] = useState<"moderation" | "settings" | "qrs">("moderation");
-
-  // Local state for event settings form
-  const [groom, setGroom] = useState(groomName);
-  const [bride, setBride] = useState(brideName);
-  const [date, setDate] = useState(eventDate);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Sync state if context changes (e.g. from preset activation)
   useEffect(() => {
-    setGroom(groomName);
-    setBride(brideName);
-    setDate(eventDate);
-  }, [groomName, brideName, eventDate]);
+    const key = adminKeyFromLocation();
+    if (!key) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reads window.location, unavailable during render
+      setAuthed("hidden");
+      return;
+    }
+    setAdminKey(key);
+    api.admin
+      .me()
+      .then(() => setAuthed(true))
+      .catch((e) => setAuthed(e instanceof ApiError && e.status === 404 ? "hidden" : false));
+  }, []);
 
-  // Handle saving wedding info
-  const handleSaveSettings = (e: React.FormEvent) => {
+  if (authed === "hidden") return <NotFound />;
+  if (authed === null) {
+    return (
+      <div className="page">
+        <div className="container" style={{ display: "grid", placeItems: "center", minHeight: "50vh" }}>
+          <span className="spinner" />
+        </div>
+      </div>
+    );
+  }
+  return authed ? <Dashboard onLogout={() => setAuthed(false)} /> : <Login onLogin={() => setAuthed(true)} />;
+}
+
+function NotFound() {
+  return (
+    <div className="page">
+      <div className="container" style={{ display: "grid", placeItems: "center", minHeight: "50vh", textAlign: "center" }}>
+        <div>
+          <h1 style={{ fontSize: "2rem", marginBottom: 8 }}>404</h1>
+          <p style={{ opacity: 0.7 }}>Halaman tidak ditemukan.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Login ================= */
+
+function Login({ onLogin }: { onLogin: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateEventDetails(groom, bride, date);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
-  };
-
-  // State for custom QR generator
-  const [customGroom, setCustomGroom] = useState("");
-  const [customBride, setCustomBride] = useState("");
-  const [customDate, setCustomDate] = useState("2026-08-08");
-  const [customTheme, setCustomTheme] = useState<NeonTheme>("pink-cyber");
-  const [customQrUrl, setCustomQrUrl] = useState("");
-
-  // Base URL helper
-  const getBaseOrigin = () => {
-    if (typeof window !== "undefined") {
-      return window.location.origin;
+    setBusy(true);
+    setError("");
+    try {
+      await api.admin.login(pin); // sets an HttpOnly session cookie
+      onLogin();
+    } catch (err) {
+      setError((err as Error).message);
+      setPin("");
+    } finally {
+      setBusy(false);
     }
-    return "http://localhost:3000";
   };
 
-  // Generate QR image API URL based on inputs
-  const getQrCodeApiUrl = (groomVal: string, brideVal: string, dateVal: string, themeVal: NeonTheme) => {
-    const origin = getBaseOrigin();
-    const targetUrl = `${origin}/?groom=${encodeURIComponent(groomVal)}&bride=${encodeURIComponent(brideVal)}&date=${dateVal}&theme=${themeVal}`;
-    
-    // Choose QR foreground color based on theme
-    let colorHex = "ff007f"; // Cyber Pink
-    if (themeVal === "cyan-future") colorHex = "00f0ff";
-    if (themeVal === "gold-luxury") colorHex = "ffb800";
-    if (themeVal === "acid-lime") colorHex = "39ff14";
+  return (
+    <div className="page">
+      <div className={styles.loginWrap}>
+        <form onSubmit={submit} className={`card card-feature card-pad ${styles.login} fade-up`}>
+          <span className={styles.lockIcon}>
+            <Lock />
+          </span>
+          <h1>Panel Admin</h1>
+          <p className="muted">Masukkan PIN untuk mengelola acara, akses tuan rumah, dan moderasi foto.</p>
+          <input
+            className={`input ${styles.pin}`}
+            type="password"
+            autoComplete="current-password"
+            placeholder="••••••"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            autoFocus
+            aria-label="PIN admin"
+          />
+          {error && (
+            <div className="alert alert-error" role="alert">
+              <AlertCircle /> {error}
+            </div>
+          )}
+          <button className="btn btn-primary btn-lg btn-block" disabled={busy || !pin}>
+            {busy ? <span className="spinner" /> : "Masuk"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
 
-    // Deep slate background color (#0e0a1f)
-    const bgHex = "0e0a1f";
-    
-    return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(targetUrl)}&color=${colorHex}&bgcolor=${bgHex}&margin=15`;
-  };
+/* ================= Dashboard ================= */
 
-  // Preset Weddings details
-  const PRESET_WEDDINGS = [
-    {
-      id: "preset-1",
-      groom: "Rian",
-      bride: "Salsa",
-      date: "2026-08-08",
-      theme: "pink-cyber" as NeonTheme,
-      themeName: "Cyber Pink",
-      themeColor: "#ff007f",
-      description: "Default Cyber Pink theme with vibrant magenta glows."
+interface Reveal {
+  eventId: string;
+  url: string;
+}
+
+function Dashboard({ onLogout }: { onLogout: () => void }) {
+  const { setEvent } = useApp();
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+
+  const handleAuthError = useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) onLogout();
     },
-    {
-      id: "preset-2",
-      groom: "Aditya",
-      bride: "Rara",
-      date: "2026-09-12",
-      theme: "gold-luxury" as NeonTheme,
-      themeName: "Golden Glow",
-      themeColor: "#ffb800",
-      description: "Elegant golden theme with deep orange sunset highlights."
-    },
-    {
-      id: "preset-3",
-      groom: "Fahmi",
-      bride: "Amanda",
-      date: "2026-10-18",
-      theme: "cyan-future" as NeonTheme,
-      themeName: "Future Cyan",
-      themeColor: "#00f0ff",
-      description: "Futuristic neon cyan and deep violet glow combination."
+    [onLogout],
+  );
+
+  const loadEvents = useCallback(async () => {
+    try {
+      const list = await api.admin.events();
+      setEvents(list);
+      setSelectedId((cur) => cur ?? list.find((e) => e.isDefault)?.id ?? list[0]?.id ?? null);
+      if (list.length === 0) setCreating(true);
+    } catch (err) {
+      handleAuthError(err);
     }
-  ];
+  }, [handleAuthError]);
 
-  const handleActivatePreset = (p: typeof PRESET_WEDDINGS[0]) => {
-    updateEventDetails(p.groom, p.bride, p.date);
-    updateTheme(p.theme);
-    alert(`Pernikahan ${p.groom} & ${p.bride} berhasil diaktifkan secara global!`);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch
+    loadEvents();
+  }, [loadEvents]);
+
+  const ev = events.find((e) => e.id === selectedId) ?? null;
+  useEffect(() => {
+    if (ev) setEvent(ev);
+  }, [ev, setEvent]);
+
+  const upsert = useCallback((e: AdminEvent) => {
+    setEvents((list) => (list.some((x) => x.id === e.id) ? list.map((x) => (x.id === e.id ? e : x)) : [e, ...list]));
+  }, []);
+
+  const logout = async () => {
+    await api.admin.logout().catch(() => undefined);
+    onLogout();
   };
 
-  // Helper for themes formatting (Tab 2)
-  const themesList: { id: NeonTheme; name: string; desc: string; colors: string[] }[] = [
-    {
-      id: "pink-cyber",
-      name: "Cyber Pink",
-      desc: "Neon magenta dan neon cyan elektrik.",
-      colors: ["#ff007f", "#00f0ff"],
-    },
-    {
-      id: "cyan-future",
-      name: "Future Cyan",
-      desc: "Neon cyan futuristik dan purple ultraviolet.",
-      colors: ["#00f0ff", "#bd00ff"],
-    },
-    {
-      id: "gold-luxury",
-      name: "Golden Glow",
-      desc: "Emas mewah berpendar dengan warna jingga senja.",
-      colors: ["#ffb800", "#ff3c00"],
-    },
-    {
-      id: "acid-lime",
-      name: "Acid Lime",
-      desc: "Hijau neon elektrik dipadukan dengan cyan.",
-      colors: ["#39ff14", "#00f0ff"],
-    },
+  const TABS: { id: Tab; label: string; icon: typeof Images }[] = [
+    { id: "overview", label: "Ringkasan", icon: LayoutDashboard },
+    { id: "moderation", label: "Moderasi", icon: Images },
+    { id: "settings", label: "Pengaturan", icon: Settings2 },
+    { id: "access", label: "Akses & QR", icon: Share2 },
+    { id: "audit", label: "Audit", icon: History },
   ];
 
   return (
-    <div className="admin-page-container container">
-      <header className="admin-header">
-        <h1 className="admin-title">
-          Dashboard <span className="neon-text-primary">Admin</span>
-        </h1>
-        <p className="admin-subtitle">
-          Nakha Wedding Invitation & Live Gallery Management System
-        </p>
-      </header>
-
-      {/* Tabs navigation */}
-      <div className="admin-tabs-nav glass-panel">
-        <button
-          className={`tab-nav-btn ${activeTab === "moderation" ? "active" : ""}`}
-          onClick={() => setActiveTab("moderation")}
-        >
-          🛡️ Moderasi Foto
-        </button>
-        <button
-          className={`tab-nav-btn ${activeTab === "settings" ? "active" : ""}`}
-          onClick={() => setActiveTab("settings")}
-        >
-          ⚙️ Pengaturan & Tema
-        </button>
-        <button
-          className={`tab-nav-btn ${activeTab === "qrs" ? "active" : ""}`}
-          onClick={() => setActiveTab("qrs")}
-        >
-          ✉️ Generator QR Undangan
-        </button>
-      </div>
-
-      {/* Stats summary row (Always visible for quick stats) */}
-      <div className="stats-row">
-        <NeonCard glowColor="primary" className="stat-card">
-          <div className="stat-card-inner">
-            <span className="stat-value neon-text-primary">{photos.length}</span>
-            <span className="stat-label">Total Foto Diunggah</span>
+    <div className="page">
+      <div className="container">
+        <header className={styles.head}>
+          <div>
+            <span className="eyebrow">Admin</span>
+            <h1>{ev ? isWedding(ev) ? <>{ev.groomName} <em>&amp;</em> {ev.brideName}</> : ev.title : "Acara"}</h1>
           </div>
-        </NeonCard>
-        
-        <NeonCard glowColor="secondary" className="stat-card">
-          <div className="stat-card-inner">
-            <span className="stat-value neon-text-secondary" style={{ textTransform: "uppercase" }}>
-              {neonTheme.replace("-", " ")}
-            </span>
-            <span className="stat-label">Tema Neon Aktif</span>
-          </div>
-        </NeonCard>
+          <button className="btn btn-secondary btn-sm" onClick={logout}>
+            <LogOut /> Keluar
+          </button>
+        </header>
 
-        <NeonCard glowColor="gold" className="stat-card">
-          <div className="stat-card-inner">
-            <span className="stat-value" style={{ color: "#ffb800", textShadow: "0 0 10px #ffb800" }}>
-              {date.split("-").reverse().join(" / ")}
-            </span>
-            <span className="stat-label">Tanggal Aktif</span>
-          </div>
-        </NeonCard>
-      </div>
+        <div className={styles.eventList}>
+          {events.map((e) => (
+            <button
+              key={e.id}
+              className={`chip ${e.id === selectedId && !creating ? "active" : ""}`}
+              onClick={() => {
+                setSelectedId(e.id);
+                setCreating(false);
+              }}
+            >
+              {e.isDefault && <Star size={12} />} {eventName(e)} · {eventTypeName(e)} · {STATUS_LABEL[e.status]}
+            </button>
+          ))}
+          <button className={`chip ${creating ? "active" : ""}`} onClick={() => setCreating(true)}>
+            <Plus size={14} /> Acara baru
+          </button>
+        </div>
 
-      {/* TAB CONTENT AREAS */}
-      <div className="admin-main-content">
-        
-        {/* TAB 1: PHOTO MODERATION */}
-        {activeTab === "moderation" && (
-          <NeonCard glowColor="primary" className="settings-section">
-            <h2 className="section-heading neon-text-primary">
-              <span className="heading-emoji">🛡️</span>
-              <span>Moderasi Foto Tamu</span>
-            </h2>
-            <p className="settings-section-desc">
-              Hapus foto atau ucapan yang kurang pantas dari para tamu agar tidak tayang di live gallery maupun proyektor panggung.
-            </p>
-
-            {photos.length > 0 ? (
-              <div className="moderation-grid">
-                {photos.map((photo) => (
-                  <div key={photo.id} className="moderation-card-item glass-panel">
-                    <div className={`moderation-card-thumb photo-container-filtered filter-${photo.filter}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo.photoUrl} alt="Guest Upload" className="moderation-card-img" />
-                    </div>
-                    
-                    <div className="moderation-card-details">
-                      <div className="moderation-card-meta">
-                        <span className="moderation-card-guest">{photo.guestName}</span>
-                        <span className="moderation-card-time">{photo.timestamp}</span>
-                      </div>
-                      <p className="moderation-card-wishes">"{photo.wishes}"</p>
-                      
-                      <div className="moderation-card-footer">
-                        <div className="filter-badge-pill">
-                          Filter: <span style={{ color: themesList.find(t => t.id === photo.filter)?.colors[0] || "#ff007f" }}>{photo.filter}</span>
-                        </div>
-                        <button
-                          className="btn-moderation-delete"
-                          onClick={() => {
-                            if (confirm(`Apakah Anda yakin ingin menghapus foto dari "${photo.guestName}"?`)) {
-                              deletePhoto(photo.id);
-                            }
-                          }}
-                        >
-                          🗑️ Hapus
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="moderation-empty">
-                <span>📭</span>
-                <p>Belum ada foto yang diunggah untuk pasangan {groomName} & {brideName}.</p>
-              </div>
+        {creating ? (
+          <CreateEvent
+            onError={handleAuthError}
+            onCreated={(e, url) => {
+              upsert(e);
+              setSelectedId(e.id);
+              setCreating(false);
+              setReveal({ eventId: e.id, url });
+              setTab("access");
+            }}
+          />
+        ) : ev ? (
+          <>
+            <nav className={styles.tabs} role="tablist">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={tab === t.id}
+                  className={`${styles.tab} ${tab === t.id ? styles.tabActive : ""}`}
+                  onClick={() => setTab(t.id)}
+                >
+                  <t.icon /> {t.label}
+                </button>
+              ))}
+            </nav>
+            {tab === "overview" && <Overview key={ev.id} ev={ev} onError={handleAuthError} />}
+            {tab === "moderation" && <Moderation key={ev.id} ev={ev} onError={handleAuthError} />}
+            {tab === "settings" && <Settings key={ev.id} ev={ev} onSaved={upsert} onError={handleAuthError} />}
+            {tab === "access" && (
+              <Access
+                key={ev.id}
+                ev={ev}
+                reveal={reveal?.eventId === ev.id ? reveal.url : ""}
+                onReveal={(url) => setReveal({ eventId: ev.id, url })}
+                onClearReveal={() => setReveal(null)}
+                onSaved={upsert}
+                onDefault={loadEvents}
+                onError={handleAuthError}
+              />
             )}
-          </NeonCard>
-        )}
+            {tab === "audit" && <Audit key={ev.id} eventId={ev.id} onError={handleAuthError} />}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
-        {/* TAB 2: WEDDING SETTINGS & THEMES */}
-        {activeTab === "settings" && (
-          <div className="settings-tab-grid">
-            <div className="flex-col gap-24">
-              {/* Event Details Card */}
-              <NeonCard glowColor="primary" className="settings-section">
-                <h2 className="section-heading neon-text-primary">
-                  <span className="heading-emoji">⚙️</span>
-                  <span>Pengaturan Pernikahan</span>
-                </h2>
-                <form onSubmit={handleSaveSettings} className="settings-form">
-                  {saveSuccess && (
-                    <div className="success-banner">
-                      ✓ Perubahan berhasil disimpan secara global!
-                    </div>
-                  )}
-                  
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="groomInput">
-                      Nama Mempelai Pria (Groom)
-                    </label>
-                    <input
-                      id="groomInput"
-                      type="text"
-                      className="input-field"
-                      value={groom}
-                      onChange={(e) => setGroom(e.target.value)}
-                      required
-                    />
-                  </div>
+interface TabProps {
+  ev: AdminEvent;
+  onError: (err: unknown) => void;
+}
 
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="brideInput">
-                      Nama Mempelai Wanita (Bride)
-                    </label>
-                    <input
-                      id="brideInput"
-                      type="text"
-                      className="input-field"
-                      value={bride}
-                      onChange={(e) => setBride(e.target.value)}
-                      required
-                    />
-                  </div>
+/* ---------- Overview ---------- */
 
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="dateInput">
-                      Tanggal Pernikahan
-                    </label>
-                    <input
-                      id="dateInput"
-                      type="date"
-                      className="input-field"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      required
-                    />
-                  </div>
+function Overview({ ev, onError }: TabProps) {
+  const [stats, setStats] = useState<EventStats | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api.admin
+        .stats(ev.id)
+        .then((s) => alive && setStats(s))
+        .catch(onError);
+    load();
+    const id = setInterval(load, 10000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [ev.id, onError]);
 
-                  <button type="submit" className="btn btn-primary save-btn">
-                    Simpan Perubahan
-                  </button>
-                </form>
-              </NeonCard>
+  return (
+    <div className={styles.stack}>
+      <div className="card card-pad">
+        <div className={styles.sectionHead}>
+          <h2>Status photobooth</h2>
+          <span className={`badge ${ev.booth.open ? "badge-live" : ""}`}>
+            {ev.booth.open && <span className="live-dot" />} {ev.booth.open ? "Terbuka" : STATUS_LABEL[ev.status]}
+          </span>
+        </div>
+        <p className="muted">{ev.booth.open ? "Tamu dapat check-in lewat QR (QR tetap, boleh dicetak)." : ev.booth.message}</p>
+      </div>
+      <StatsGrid stats={stats} />
+    </div>
+  );
+}
 
-              {/* Danger Zone Card */}
-              <NeonCard glowColor="pink" className="settings-section danger-section">
-                <h2 className="section-heading text-pink" style={{ color: "#ff007f", textShadow: "0 0 10px #ff007f" }}>
-                  <span className="heading-emoji">⚠️</span>
-                  <span>Zona Bahaya</span>
-                </h2>
-                <p className="settings-section-desc">
-                  Tindakan destruktif di bawah ini bersifat permanen dan tidak dapat dibatalkan.
-                </p>
-                <div className="danger-actions">
-                  <button
-                    type="button"
-                    className="btn btn-flat reset-btn"
-                    onClick={() => {
-                      if (confirm("Apakah Anda yakin ingin mereset data foto dan ucapan Rian & Salsa ke mock awal?")) {
-                        resetToDefault();
-                        setGroom("Rian");
-                        setBride("Salsa");
-                        setDate("2026-08-08");
-                      }
-                    }}
-                  >
-                    🔄 Reset Data Rian & Salsa ke Mock Awal
-                  </button>
-                </div>
-              </NeonCard>
-            </div>
+/* ---------- Moderation ---------- */
 
-            {/* Global Theme selector card */}
-            <NeonCard glowColor="secondary" className="settings-section">
-              <h2 className="section-heading neon-text-secondary">
-                <span className="heading-emoji">🎨</span>
-                <span>Tema Neon Global</span>
-              </h2>
-              <p className="settings-section-desc">
-                Pilih palet warna neon utama. Ini secara otomatis memperbarui visual bercahaya di seluruh halaman utama, photobooth, slideshow proyektor, dan live gallery.
-              </p>
-              <div className="themes-grid">
-                {themesList.map((theme) => (
-                  <button
-                    key={theme.id}
-                    className={`theme-selector-btn glass-panel ${neonTheme === theme.id ? "active" : ""}`}
-                    onClick={() => updateTheme(theme.id)}
-                  >
-                    <div className="theme-circles-preview">
-                      <span className="circle" style={{ backgroundColor: theme.colors[0], boxShadow: `0 0 8px ${theme.colors[0]}` }} />
-                      <span className="circle" style={{ backgroundColor: theme.colors[1], boxShadow: `0 0 8px ${theme.colors[1]}` }} />
-                    </div>
-                    <div className="theme-meta">
-                      <span className="theme-name">{theme.name}</span>
-                      <span className="theme-desc">{theme.desc}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </NeonCard>
+function Moderation({ ev, onError }: TabProps) {
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api.admin
+        .photos(ev.id)
+        .then((r) => alive && setPhotos(r.photos))
+        .catch(onError);
+    load();
+    const id = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [ev.id, onError]);
+
+  return (
+    <PhotoModeration
+      photos={photos}
+      onDownloadAll={async () => {
+        const blob = await downloadAdminZip(ev.id);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `seribu-lensa-${ev.slug}.zip`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }}
+      onAction={async (p, action, target) => {
+        try {
+          const updated = await api.admin.moderate(ev.id, p.id, action, target);
+          setPhotos((list) => list.map((x) => (x.id === p.id ? updated : x)));
+        } catch (err) {
+          onError(err);
+          throw err;
+        }
+      }}
+      onDelete={async (p) => {
+        try {
+          await api.admin.deletePhoto(ev.id, p.id);
+          setPhotos((list) => list.filter((x) => x.id !== p.id));
+        } catch (err) {
+          onError(err);
+          throw err;
+        }
+      }}
+    />
+  );
+}
+
+/* ---------- Event form (create + settings) ---------- */
+
+interface FormState {
+  slug: string;
+  status: EventStatus;
+  type: EventType;
+  title: string;
+  groomName: string;
+  brideName: string;
+  groomParent: string;
+  brideParent: string;
+  venue: string;
+  venueAddress: string;
+  mapsUrl: string;
+  hashtag: string;
+  theme: AdminEvent["theme"];
+  start: string; // datetime-local
+  end: string;
+  lat: string;
+  lng: string;
+  radiusMeters: number;
+  moderationMode: ModerationMode;
+  galleryVisibility: GalleryVisibility;
+}
+
+function formFrom(ev?: AdminEvent): FormState {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  const startIso = ev?.startAt ?? new Date(now.getTime() + 7 * 864e5).toISOString();
+  const endIso = ev?.endAt ?? new Date(Date.parse(startIso) + 4 * 36e5).toISOString();
+  return {
+    slug: ev?.slug ?? "",
+    status: ev?.status ?? "DRAFT",
+    type: ev?.type ?? "wedding",
+    title: ev?.title ?? "",
+    groomName: ev?.groomName ?? "",
+    brideName: ev?.brideName ?? "",
+    groomParent: ev?.groomParent ?? "",
+    brideParent: ev?.brideParent ?? "",
+    venue: ev?.venue ?? "",
+    venueAddress: ev?.venueAddress ?? "",
+    mapsUrl: ev?.mapsUrl ?? "",
+    hashtag: ev?.hashtag ?? "",
+    theme: ev?.theme ?? "maroon",
+    start: toLocalInput(startIso),
+    end: toLocalInput(endIso),
+    lat: ev?.venueLatitude != null ? String(ev.venueLatitude) : "",
+    lng: ev?.venueLongitude != null ? String(ev.venueLongitude) : "",
+    radiusMeters: ev?.radiusMeters ?? 150,
+    moderationMode: ev?.moderationMode ?? "AUTO_PUBLISH",
+    galleryVisibility: ev?.galleryVisibility ?? "GUESTS",
+  };
+}
+
+function toInput(f: FormState): EventInput {
+  const hasLoc = f.lat.trim() !== "" && f.lng.trim() !== "";
+  return {
+    slug: f.slug.trim() || undefined,
+    status: f.status,
+    type: f.type,
+    title: f.title,
+    groomName: f.groomName,
+    brideName: f.brideName,
+    groomParent: f.groomParent,
+    brideParent: f.brideParent,
+    venue: f.venue,
+    venueAddress: f.venueAddress,
+    mapsUrl: f.mapsUrl,
+    hashtag: f.hashtag,
+    theme: f.theme,
+    startAt: fromLocalInput(f.start),
+    endAt: fromLocalInput(f.end),
+    venueLatitude: hasLoc ? Number(f.lat) : undefined,
+    venueLongitude: hasLoc ? Number(f.lng) : undefined,
+    radiusMeters: f.radiusMeters,
+    moderationMode: f.moderationMode,
+    galleryVisibility: f.galleryVisibility,
+  };
+}
+
+function EventFields({ form, set, full }: { form: FormState; set: <K extends keyof FormState>(k: K, v: FormState[K]) => void; full: boolean }) {
+  const text = (k: keyof FormState, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <div className="field">
+      <label className="label" htmlFor={`f-${k}`}>
+        {label}
+      </label>
+      <input id={`f-${k}`} className="input" value={form[k] as string} onChange={(e) => set(k, e.target.value as never)} {...props} />
+    </div>
+  );
+
+  return (
+    <>
+      <h2>Jenis acara</h2>
+      <div className="chips" role="radiogroup" aria-label="Jenis acara">
+        {EVENT_TYPES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={form.type === t.id}
+            className={`chip ${form.type === t.id ? "active" : ""}`}
+            onClick={() => set("type", t.id)}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
+      <p className="hint">{EVENT_TYPES.find((t) => t.id === form.type)?.desc}</p>
+
+      {form.type === "wedding" ? (
+        <>
+          <h2 style={{ marginTop: 8 }}>Mempelai</h2>
+          <div className={styles.formGrid}>
+            {text("groomName", "Nama mempelai pria", { required: true, maxLength: 40 })}
+            {text("brideName", "Nama mempelai wanita", { required: true, maxLength: 40 })}
+            {full && text("groomParent", "Keterangan orang tua (pria)", { placeholder: "Putra dari Bpk. … & Ibu …" })}
+            {full && text("brideParent", "Keterangan orang tua (wanita)", { placeholder: "Putri dari Bpk. … & Ibu …" })}
+          </div>
+        </>
+      ) : (
+        <>
+          <h2 style={{ marginTop: 8 }}>Nama acara</h2>
+          <div className={styles.formGrid}>
+            {text("title", "Nama acara", {
+              required: true,
+              maxLength: 80,
+              placeholder: form.type === "campus" ? "cth. Wisuda FEB UB 2026" : "cth. Annual Gathering PT Nakha 2026",
+            })}
+          </div>
+        </>
+      )}
+
+      <h2 style={{ marginTop: 8 }}>Jadwal</h2>
+      <div className={styles.formGrid}>
+        {text("start", "Mulai", { type: "datetime-local", required: true })}
+        {text("end", "Selesai", { type: "datetime-local", required: true })}
+      </div>
+      <p className="hint">Photobooth dibuka 60 menit sebelum mulai dan ditutup 60 menit setelah selesai (waktu sesuai perangkat ini).</p>
+
+
+      {full && (
+        <>
+          <h2 style={{ marginTop: 8 }}>Detail undangan</h2>
+          <div className={styles.formGrid}>
+            {text("venue", "Nama tempat", { placeholder: "cth. The Glow Ballroom" })}
+            {text("venueAddress", "Alamat")}
+            {text("mapsUrl", "Link Google Maps", { type: "url", placeholder: "https://maps.app.goo.gl/…" })}
+            {text("hashtag", "Hashtag", { placeholder: form.type === "wedding" ? "#RianSalsaSelamanya" : "#WisudaFEB2026" })}
+            {text("slug", "Slug link acara", { placeholder: "rian-salsa", pattern: "[a-z0-9-]+" })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function CreateEvent({ onCreated, onError }: { onCreated: (e: AdminEvent, hostUrl: string) => void; onError: (e: unknown) => void }) {
+  const [form, setForm] = useState<FormState>(() => formFrom());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.admin.createEvent(toInput(form));
+      onCreated(res.event, res.hostAccessUrl);
+    } catch (err) {
+      onError(err);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className={`card card-pad ${styles.stack}`}>
+      <EventFields form={form} set={set} full={false} />
+      <p className="hint">
+        Acara baru dibuat sebagai <strong>Draf</strong>. Host token dibuat otomatis dan hanya ditampilkan sekali setelah ini.
+      </p>
+      {error && (
+        <div className="alert alert-error">
+          <AlertCircle /> {error}
+        </div>
+      )}
+      <button className="btn btn-primary btn-lg btn-block" disabled={busy}>
+        {busy ? <span className="spinner" /> : "Buat Acara"}
+      </button>
+    </form>
+  );
+}
+
+function Settings({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEvent) => void }) {
+  const [form, setForm] = useState<FormState>(() => formFrom(ev));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const saved = await api.admin.updateEvent(ev.id, toInput(form));
+      onSaved(saved);
+      setForm(formFrom(saved));
+      setMsg({ ok: true, text: "Pengaturan tersimpan dan langsung tampil di semua perangkat." });
+    } catch (err) {
+      onError(err);
+      setMsg({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className={styles.settings}>
+      <div className={styles.stack}>
+        <CoverPhoto ev={ev} onSaved={onSaved} onError={onError} />
+        <CustomFrame ev={ev} onSaved={onSaved} onError={onError} />
+        <div className={`card card-pad ${styles.stack}`}>
+          <EventFields form={form} set={set} full />
+        </div>
+      </div>
+
+      <div className={`card card-pad ${styles.stack}`}>
+        <h2>Status acara</h2>
+        <div className="chips">
+          {(["DRAFT", "ACTIVE", "PAUSED", "ENDED"] as EventStatus[]).map((s) => (
+            <button type="button" key={s} className={`chip ${form.status === s ? "active" : ""}`} onClick={() => set("status", s)}>
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+        <p className="hint">Photobooth hanya menerima tamu yang scan QR acara, saat status Aktif dan di jam acara.</p>
+
+        <h2 style={{ marginTop: 8 }}>Moderasi &amp; galeri</h2>
+        <div className="chips">
+          {(
+            [
+              ["AUTO_PUBLISH", "Otomatis tampil"],
+              ["MANUAL_APPROVAL", "Perlu persetujuan"],
+            ] as [ModerationMode, string][]
+          ).map(([id, label]) => (
+            <button type="button" key={id} className={`chip ${form.moderationMode === id ? "active" : ""}`} onClick={() => set("moderationMode", id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="chips">
+          {(
+            [
+              ["GUESTS", "Galeri: tamu check-in"],
+              ["PUBLIC", "Galeri: publik"],
+              ["PRIVATE", "Galeri: hanya host"],
+            ] as [GalleryVisibility, string][]
+          ).map(([id, label]) => (
+            <button
+              type="button"
+              key={id}
+              className={`chip ${form.galleryVisibility === id ? "active" : ""}`}
+              onClick={() => set("galleryVisibility", id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <h2 style={{ marginTop: 8 }}>Tema warna</h2>
+        <div className={styles.themes}>
+          {THEMES.map((t) => (
+            <button
+              type="button"
+              key={t.id}
+              className={`${styles.theme} ${form.theme === t.id ? styles.themeActive : ""}`}
+              onClick={() => set("theme", t.id)}
+              aria-pressed={form.theme === t.id}
+              style={{ "--c": t.color } as React.CSSProperties}
+            >
+              <span className={styles.themeSwatch} />
+              <strong>{t.name}</strong>
+              <small>{t.desc}</small>
+            </button>
+          ))}
+        </div>
+
+        {msg && (
+          <div className={`alert ${msg.ok ? "alert-success" : "alert-error"}`} role="status">
+            {msg.ok ? <CheckCircle2 /> : <AlertCircle />} {msg.text}
           </div>
         )}
+        <button className="btn btn-primary btn-lg btn-block" disabled={busy}>
+          {busy ? <span className="spinner" /> : "Simpan Pengaturan"}
+        </button>
+      </div>
+    </form>
+  );
+}
 
-        {/* TAB 3: QR CODE & INVITATIONS */}
-        {activeTab === "qrs" && (
-          <div className="qrs-tab-layout">
-            
-            {/* Title explanation */}
-            <div className="qrs-info-box glass-panel">
-              <h3>Bagaimana cara kerja QR Code Multi-Pasangan?</h3>
-              <p>
-                Setiap QR code di bawah ini disisipkan parameter query URL unik (seperti <code>?groom=Aditya&bride=Rara...</code>).
-                Ketika tamu memindai QR code tersebut, aplikasi secara otomatis menyesuaikan nama pengantin, tanggal acara, serta skema warna neon untuk pasangan tersebut!
-              </p>
-            </div>
+/* ---------- Custom photobooth frame ---------- */
 
-            {/* Row of 3 presets */}
-            <div className="presets-section">
-              <h3 className="sub-section-title">3 QR Code Undangan Preset (Beda Orang & Tema)</h3>
-              <div className="presets-grid">
-                {PRESET_WEDDINGS.map((preset) => {
-                  const qrImgUrl = getQrCodeApiUrl(preset.groom, preset.bride, preset.date, preset.theme);
-                  const originUrl = getBaseOrigin();
-                  const encodedLink = `${originUrl}/?groom=${encodeURIComponent(preset.groom)}&bride=${encodeURIComponent(preset.bride)}&date=${preset.date}&theme=${preset.theme}`;
+function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEvent) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-                  return (
-                    <NeonCard key={preset.id} glowColor={preset.theme === "pink-cyber" ? "pink" : preset.theme === "gold-luxury" ? "gold" : "cyan"} className="preset-card">
-                      <div className="preset-card-inner">
-                        <div className="preset-header">
-                          <span className="theme-dot-badge" style={{ backgroundColor: preset.themeColor, boxShadow: `0 0 10px ${preset.themeColor}` }} />
-                          <span className="theme-name-tag">{preset.themeName}</span>
-                        </div>
-                        
-                        <h4 className="preset-names">
-                          {preset.groom} & {preset.bride}
-                        </h4>
-                        
-                        <p className="preset-date">{preset.date.split("-").reverse().join(" / ")}</p>
+  const run = async (fn: () => Promise<AdminEvent>) => {
+    setBusy(true);
+    setError("");
+    try {
+      onSaved(await fn());
+    } catch (err) {
+      onError(err);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-                        <div className="qr-image-wrapper">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img 
-                            src={qrImgUrl} 
-                            alt={`QR Code ${preset.groom} & ${preset.bride}`} 
-                            className="qr-img-element"
-                          />
-                        </div>
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.type !== "image/png") {
+      setError("Bingkai harus berupa file PNG dengan latar transparan.");
+      return;
+    }
+    void run(() => api.admin.uploadFrame(ev.id, file));
+  };
 
-                        <div className="preset-actions-panel">
-                          <button 
-                            className="btn btn-preset-action btn-activate"
-                            onClick={() => handleActivatePreset(preset)}
-                          >
-                            🚀 Aktifkan Acara
-                          </button>
-                          <a 
-                            href={encodedLink} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="btn btn-preset-action btn-preview"
-                          >
-                            🔗 Buka Link ↗
-                          </a>
-                          <a 
-                            href={qrImgUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="btn btn-preset-action btn-download"
-                          >
-                            💾 Unduh QR
-                          </a>
-                        </div>
-                      </div>
-                    </NeonCard>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Custom QR Code Generator Form */}
-            <NeonCard glowColor="secondary" className="settings-section mt-4">
-              <h2 className="section-heading neon-text-secondary">
-                <span className="heading-emoji">✉️</span>
-                <span>Buat Undangan QR Custom Baru</span>
-              </h2>
-              <p className="settings-section-desc">
-                Ketik nama pasangan lain untuk memvisualisasikan dan menghasilkan QR Code undangan khusus secara instan.
-              </p>
-              
-              <div className="custom-qr-generator-grid">
-                <div className="generator-inputs-panel">
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="customGroomInput">Nama Mempelai Pria</label>
-                    <input
-                      id="customGroomInput"
-                      type="text"
-                      placeholder="Contoh: Dani"
-                      className="input-field"
-                      value={customGroom}
-                      onChange={(e) => setCustomGroom(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="customBrideInput">Nama Mempelai Wanita</label>
-                    <input
-                      id="customBrideInput"
-                      type="text"
-                      placeholder="Contoh: Fitri"
-                      className="input-field"
-                      value={customBride}
-                      onChange={(e) => setCustomBride(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="customDateInput">Tanggal Pernikahan</label>
-                    <input
-                      id="customDateInput"
-                      type="date"
-                      className="input-field"
-                      value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Tema Warna Neon</label>
-                    <div className="custom-theme-selectors">
-                      {themesList.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          className={`custom-theme-pill ${customTheme === t.id ? "active" : ""}`}
-                          onClick={() => setCustomTheme(t.id)}
-                          style={{
-                            "--pill-color": t.colors[0],
-                            border: `1px solid ${customTheme === t.id ? t.colors[0] : "rgba(255,255,255,0.15)"}`
-                          } as React.CSSProperties}
-                        >
-                          {t.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="generator-preview-panel glass-panel">
-                  {customGroom && customBride ? (
-                    <div className="custom-preview-content">
-                      <div className="preview-header-meta">PREVIEW KODE QR</div>
-                      
-                      <h4 className="preview-couple-name">{customGroom} & {customBride}</h4>
-                      <p className="preview-wedding-date">{customDate.split("-").reverse().join(" / ")}</p>
-
-                      <div className="qr-image-wrapper glow-border">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img 
-                          src={getQrCodeApiUrl(customGroom, customBride, customDate, customTheme)} 
-                          alt="Custom QR Preview" 
-                          className="qr-img-element"
-                        />
-                      </div>
-
-                      <div className="generator-preview-actions">
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => {
-                            updateEventDetails(customGroom, customBride, customDate);
-                            updateTheme(customTheme);
-                            alert(`Undangan baru untuk ${customGroom} & ${customBride} diaktifkan global!`);
-                          }}
-                        >
-                          🚀 Aktifkan Sekarang
-                        </button>
-                        <a
-                          href={`${getBaseOrigin()}/?groom=${encodeURIComponent(customGroom)}&bride=${encodeURIComponent(customBride)}&date=${customDate}&theme=${customTheme}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-secondary"
-                        >
-                          🔗 Uji Link ↗
-                        </a>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="generator-preview-placeholder">
-                      <span>✉️</span>
-                      <p>Ketik nama mempelai untuk mempratinjau QR Code secara real-time.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </NeonCard>
+  return (
+    <div className={`card card-pad ${styles.stack}`}>
+      <div>
+        <h2>Bingkai photobooth</h2>
+        <p className="hint" style={{ marginTop: 4 }}>
+          Upload bingkai khusus acara ini. Tamu akan melihatnya sebagai pilihan pertama, dan bingkai ini otomatis terpilih.
+        </p>
+      </div>
+      <div className={styles.frameBox}>
+        {ev.frameUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photoSrc(ev.frameUrl)} alt="Bingkai photobooth" />
+        ) : (
+          <div className={styles.coverEmpty}>
+            <ImagePlus />
+            <span>Belum ada bingkai khusus</span>
           </div>
         )}
       </div>
-
-      <style jsx>{`
-        .admin-page-container {
-          padding: 160px 20px 80px !important;
-          display: flex;
-          flex-direction: column;
-          gap: 30px;
-        }
-
-        .admin-header {
-          text-align: center;
-          margin-top: 20px;
-          margin-bottom: 10px;
-        }
-
-        .admin-title {
-          font-family: var(--font-serif);
-          font-size: 2.8rem;
-          font-weight: 700;
-          margin-bottom: 8px;
-        }
-
-        .admin-subtitle {
-          font-size: 1.1rem;
-          color: var(--text-muted);
-          max-width: 600px;
-          margin: 0 auto;
-        }
-
-        /* Tabs Navigation styling */
-        .admin-tabs-nav {
-          display: flex;
-          justify-content: center;
-          gap: 12px;
-          padding: 8px;
-          border-radius: 40px;
-          background: rgba(14, 10, 31, 0.6) !important;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          width: fit-content;
-          margin: 10px auto 30px;
-        }
-
-        .tab-nav-btn {
-          padding: 12px 28px;
-          border-radius: 30px;
-          border: none;
-          background: transparent;
-          color: var(--text-muted);
-          font-weight: 700;
-          font-size: 0.95rem;
-          cursor: pointer;
-          transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-
-        .tab-nav-btn:hover {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.04);
-        }
-
-        .tab-nav-btn.active {
-          color: #fff;
-          background: var(--neon-secondary);
-          box-shadow: var(--neon-secondary-glow);
-          text-shadow: 0 0 5px #fff;
-        }
-
-        /* Stats Row */
-        .stats-row {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
-          width: 100%;
-          margin-bottom: 10px;
-        }
-
-        .stat-card-inner {
-          padding: 24px 16px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          gap: 10px;
-          min-height: 110px;
-          width: 100%;
-        }
-
-        .stat-value {
-          font-size: 1.8rem;
-          font-weight: 800;
-          line-height: 1.2;
-          letter-spacing: 0.5px;
-        }
-
-        .stat-label {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          font-weight: 600;
-          letter-spacing: 1px;
-        }
-
-        /* Scoped style fixes to target NeonCard properly */
-        :global(.settings-section) {
-          padding: 30px !important;
-          border-radius: 16px !important;
-          width: 100% !important;
-        }
-
-        :global(.danger-section) {
-          border-color: rgba(255, 0, 127, 0.3) !important;
-        }
-
-        :global(.mt-4) {
-          margin-top: 24px !important;
-        }
-
-        .admin-main-content {
-          width: 100%;
-        }
-
-        .section-heading {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 1.4rem;
-          font-weight: 700;
-          margin-bottom: 18px;
-        }
-
-        .heading-emoji {
-          font-size: 1.5rem;
-          flex-shrink: 0;
-        }
-
-        .settings-section-desc {
-          font-size: 0.95rem;
-          color: var(--text-muted);
-          margin-bottom: 24px;
-          line-height: 1.6;
-        }
-
-        .settings-form {
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-        }
-
-        .success-banner {
-          background: rgba(57, 255, 20, 0.1);
-          border: 1px solid #39ff14;
-          color: #39ff14;
-          padding: 12px 16px;
-          border-radius: 8px;
-          font-size: 0.9rem;
-          font-weight: 600;
-          box-shadow: 0 0 10px rgba(57, 255, 20, 0.1);
-        }
-
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .form-label {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: var(--text-muted);
-        }
-
-        .save-btn {
-          margin-top: 10px;
-          height: 48px;
-          font-size: 1rem;
-        }
-
-        /* 2-Column settings view */
-        .settings-tab-grid {
-          display: grid;
-          grid-template-columns: 1.1fr 1fr;
-          gap: 30px;
-          align-items: start;
-        }
-
-        .flex-col {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .gap-24 {
-          gap: 24px;
-        }
-
-        /* Theme selection */
-        .themes-grid {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-
-        .theme-selector-btn {
-          display: flex;
-          align-items: center;
-          gap: 18px;
-          padding: 16px 20px;
-          border-radius: 12px;
-          text-align: left;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          cursor: pointer;
-          transition: all 0.3s ease;
-          width: 100%;
-        }
-
-        .theme-selector-btn:hover {
-          background: rgba(255, 255, 255, 0.06);
-          border-color: rgba(255, 255, 255, 0.12);
-        }
-
-        .theme-selector-btn.active {
-          background: rgba(255, 255, 255, 0.08);
-          border-color: var(--neon-secondary);
-          box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
-        }
-
-        .theme-circles-preview {
-          display: flex;
-          gap: 6px;
-          flex-shrink: 0;
-        }
-
-        .theme-circles-preview .circle {
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-        }
-
-        .theme-meta {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .theme-name {
-          font-size: 1rem;
-          font-weight: 700;
-          color: #fff;
-        }
-
-        .theme-desc {
-          font-size: 0.78rem;
-          color: var(--text-muted);
-        }
-
-        /* Danger actions */
-        .danger-actions {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .reset-btn {
-          color: #ff007f !important;
-          border-color: rgba(255, 0, 127, 0.2) !important;
-          width: 100%;
-          justify-content: center;
-          font-size: 0.9rem;
-          padding: 12px;
-        }
-
-        .reset-btn:hover {
-          background: rgba(255, 0, 127, 0.1);
-          border-color: #ff007f !important;
-          box-shadow: 0 0 10px rgba(255,0,127,0.2);
-        }
-
-        /* Tab 1: Moderation Grid */
-        .moderation-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-          gap: 20px;
-        }
-
-        .moderation-card-item {
-          display: flex;
-          flex-direction: column;
-          border-radius: 14px;
-          overflow: hidden;
-          background: rgba(14, 10, 31, 0.45) !important;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          transition: all 0.3s ease;
-        }
-
-        .moderation-card-item:hover {
-          border-color: var(--neon-primary);
-          transform: translateY(-2px);
-          box-shadow: 0 5px 15px rgba(255, 0, 127, 0.1);
-        }
-
-        .moderation-card-thumb {
-          width: 100%;
-          height: 190px;
-          overflow: hidden;
-          background: #000;
-          position: relative;
-        }
-
-        .moderation-card-img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-
-        .moderation-card-details {
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          flex: 1;
-        }
-
-        .moderation-card-meta {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .moderation-card-guest {
-          font-weight: 700;
-          color: #fff;
-          font-size: 1rem;
-        }
-
-        .moderation-card-time {
-          font-size: 0.78rem;
-          color: var(--text-muted);
-        }
-
-        .moderation-card-wishes {
-          font-size: 0.88rem;
-          color: var(--text-muted);
-          line-height: 1.5;
-          font-style: italic;
-          flex: 1;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-
-        .moderation-card-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 6px;
-          border-top: 1px solid rgba(255, 255, 255, 0.05);
-          padding-top: 12px;
-        }
-
-        .filter-badge-pill {
-          font-size: 0.78rem;
-          color: var(--text-muted);
-        }
-
-        .btn-moderation-delete {
-          padding: 6px 14px;
-          border-radius: 6px;
-          border: 1px solid rgba(255, 0, 127, 0.3);
-          background: rgba(255, 0, 127, 0.1);
-          color: #ff007f;
-          font-weight: 700;
-          font-size: 0.8rem;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .btn-moderation-delete:hover {
-          background: #ff007f;
-          color: #fff;
-          box-shadow: 0 0 10px rgba(255, 0, 127, 0.4);
-        }
-
-        .moderation-empty {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 12px;
-          padding: 80px 20px;
-          text-align: center;
-          color: var(--text-muted);
-        }
-
-        .moderation-empty span {
-          font-size: 3rem;
-        }
-
-        /* Tab 3: QRs Layout styling */
-        .qrs-tab-layout {
-          display: flex;
-          flex-direction: column;
-          gap: 30px;
-        }
-
-        .qrs-info-box {
-          padding: 20px 24px;
-          border-radius: 14px;
-          background: rgba(14, 10, 31, 0.5) !important;
-          border: 1px solid rgba(0, 240, 255, 0.15);
-          box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.05);
-        }
-
-        .qrs-info-box h3 {
-          color: var(--neon-secondary);
-          margin-bottom: 8px;
-          font-size: 1.1rem;
-        }
-
-        .qrs-info-box p {
-          font-size: 0.92rem;
-          line-height: 1.6;
-        }
-
-        .presets-section {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .sub-section-title {
-          font-size: 1.3rem;
-          font-weight: 700;
-          text-align: left;
-          letter-spacing: 0.5px;
-        }
-
-        .presets-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
-        }
-
-        :global(.preset-card) {
-          border-radius: 20px !important;
-          padding: 0 !important;
-          overflow: hidden;
-        }
-
-        .preset-card-inner {
-          padding: 24px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          width: 100%;
-        }
-
-        .preset-header {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-
-        .theme-dot-badge {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-        }
-
-        .theme-name-tag {
-          font-size: 0.78rem;
-          font-weight: 700;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          color: var(--text-muted);
-        }
-
-        .preset-names {
-          font-size: 1.35rem;
-          font-weight: 800;
-          margin-bottom: 4px;
-          color: #fff;
-        }
-
-        .preset-date {
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          font-weight: 600;
-          margin-bottom: 16px;
-        }
-
-        .qr-image-wrapper {
-          width: 170px;
-          height: 170px;
-          padding: 8px;
-          background: #0e0a1f;
-          border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 20px;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-          transition: all 0.3s ease;
-        }
-
-        .qr-image-wrapper.glow-border {
-          border-color: var(--neon-secondary);
-          box-shadow: 0 0 15px rgba(0, 240, 255, 0.15);
-        }
-
-        .qr-img-element {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-          border-radius: 6px;
-        }
-
-        .preset-actions-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          width: 100%;
-          margin-top: auto;
-        }
-
-        .btn-preset-action {
-          width: 100%;
-          padding: 10px;
-          border-radius: 30px;
-          font-weight: 700;
-          font-size: 0.85rem;
-          text-align: center;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          border: none;
-        }
-
-        .btn-activate {
-          background: #39ff14;
-          color: #070412;
-          box-shadow: 0 0 10px rgba(57, 255, 20, 0.2);
-        }
-
-        .btn-activate:hover {
-          background: #50ff30;
-          box-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
-          transform: scale(1.02);
-        }
-
-        .btn-preview {
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255,255,255,0.15);
-          color: #fff;
-          display: block;
-        }
-
-        .btn-preview:hover {
-          background: rgba(255, 255, 255, 0.12);
-          border-color: rgba(255,255,255,0.3);
-        }
-
-        .btn-download {
-          background: rgba(0, 240, 255, 0.1);
-          border: 1px solid rgba(0, 240, 255, 0.3);
-          color: #00f0ff;
-          display: block;
-        }
-
-        .btn-download:hover {
-          background: var(--neon-secondary);
-          color: #070412;
-          box-shadow: var(--neon-secondary-glow);
-        }
-
-        /* Custom generator layout */
-        .custom-qr-generator-grid {
-          display: grid;
-          grid-template-columns: 1.2fr 1fr;
-          gap: 30px;
-          margin-top: 10px;
-        }
-
-        .generator-inputs-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .custom-theme-selectors {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .custom-theme-pill {
-          padding: 8px 16px;
-          border-radius: 20px;
-          background: rgba(255, 255, 255, 0.02);
-          color: var(--text-muted);
-          font-weight: 700;
-          font-size: 0.85rem;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .custom-theme-pill:hover {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.05);
-        }
-
-        .custom-theme-pill.active {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.05);
-          box-shadow: 0 0 10px var(--pill-color);
-          text-shadow: 0 0 5px #fff;
-        }
-
-        .generator-preview-panel {
-          border-radius: 16px;
-          padding: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(0,0,0,0.2) !important;
-          min-height: 300px;
-        }
-
-        .custom-preview-content {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          width: 100%;
-        }
-
-        .preview-header-meta {
-          font-size: 0.75rem;
-          font-weight: 700;
-          letter-spacing: 2px;
-          color: var(--neon-secondary);
-          text-shadow: var(--neon-secondary-glow);
-          margin-bottom: 12px;
-        }
-
-        .preview-couple-name {
-          font-size: 1.4rem;
-          font-weight: 800;
-          color: #fff;
-          margin-bottom: 2px;
-        }
-
-        .preview-wedding-date {
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          margin-bottom: 16px;
-          font-weight: 600;
-        }
-
-        .generator-preview-actions {
-          display: flex;
-          gap: 12px;
-          width: 100%;
-        }
-
-        .generator-preview-actions .btn {
-          flex: 1;
-          height: 40px;
-          font-size: 0.85rem;
-        }
-
-        .generator-preview-placeholder {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          gap: 12px;
-          color: var(--text-muted);
-        }
-
-        .generator-preview-placeholder span {
-          font-size: 2.8rem;
-        }
-
-        .generator-preview-placeholder p {
-          font-size: 0.9rem;
-          max-width: 240px;
-        }
-
-        /* Responsive Layouts */
-        @media (max-width: 992px) {
-          .settings-tab-grid,
-          .custom-qr-generator-grid {
-            grid-template-columns: 1fr;
-            gap: 24px;
-          }
-          .presets-grid {
-            grid-template-columns: 1fr;
-            gap: 20px;
-          }
-          .stats-row {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-        }
-
-        @media (max-width: 768px) {
-          .admin-page-container {
-            padding: 110px 16px 60px !important;
-          }
-          .admin-header {
-            margin-top: 10px !important;
-          }
-          .admin-title {
-            font-size: 2.2rem;
-          }
-          .admin-tabs-nav {
-            flex-direction: column;
-            border-radius: 20px;
-            width: 100%;
-            padding: 6px;
-          }
-          .tab-nav-btn {
-            width: 100%;
-            padding: 10px 20px;
-          }
-          .qr-image-wrapper {
-            width: 150px;
-            height: 150px;
-          }
-        }
-      `}</style>
+      <ul className={styles.frameRules}>
+        <li>
+          File <strong>PNG</strong> dengan area <strong>transparan</strong> (bolong) tempat foto tamu terlihat.
+        </li>
+        <li>Potret atau persegi. Disarankan 1080 × 1350 px (4:5) atau 1080 × 1920 px (9:16).</li>
+        <li>Foto tamu mengisi seluruh bidang di bawah bingkai, jadi letakkan teks &amp; logo di pinggir.</li>
+      </ul>
+      {error && (
+        <div className="alert alert-error">
+          <AlertCircle /> {error}
+        </div>
+      )}
+      <div className={styles.row}>
+        <button type="button" className="btn btn-dark btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+          {busy ? <span className="spinner" /> : <ImagePlus />} {ev.frameUrl ? "Ganti bingkai" : "Upload bingkai"}
+        </button>
+        {ev.frameUrl && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => run(() => api.admin.deleteFrame(ev.id))} disabled={busy}>
+            <Trash2 /> Hapus
+          </button>
+        )}
+      </div>
+      <input ref={fileRef} type="file" accept="image/png" hidden onChange={onFile} />
+    </div>
+  );
+}
+
+/* ---------- Cover photo ---------- */
+
+function CoverPhoto({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEvent) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const upload = async (blob: Blob) => {
+    setBusy(true);
+    setError("");
+    try {
+      onSaved(await api.admin.uploadCover(ev.id, blob));
+    } catch (err) {
+      onError(err);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      await upload(await preparePhoto(await readFileAsDataUrl(file), "none", 2200));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const accent = THEMES.find((t) => t.id === ev.theme)?.color ?? THEMES[0].color;
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const st of COVER_STYLES) next[st.id] = coverCanvas(st.id, accent, 480, 320).toDataURL("image/jpeg", 0.8);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- canvas previews are browser-only
+    setPreviews(next);
+  }, [accent]);
+
+  const applyDesign = async (style: CoverStyle) => upload(await canvasToBlob(coverCanvas(style, accent), "image/jpeg", 0.9));
+
+  const remove = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      onSaved(await api.admin.deleteCover(ev.id));
+    } catch (err) {
+      onError(err);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={`card card-pad ${styles.stack}`}>
+      <div>
+        <h2>Foto sampul</h2>
+        <p className="hint" style={{ marginTop: 4 }}>
+          Foto asli (mempelai, kampus, atau tim) untuk latar sampul. Tanpa foto, undangan tampil dengan desain tipografi.
+        </p>
+      </div>
+      <div className={styles.cover}>
+        {ev.coverUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photoSrc(ev.coverUrl)} alt="Foto sampul" />
+        ) : (
+          <div className={styles.coverEmpty}>
+            <ImagePlus />
+            <span>Belum ada foto sampul</span>
+          </div>
+        )}
+      </div>
+      {error && (
+        <div className="alert alert-error">
+          <AlertCircle /> {error}
+        </div>
+      )}
+      <div className={styles.row}>
+        <button type="button" className="btn btn-dark btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+          {busy ? <span className="spinner" /> : <ImagePlus />} {ev.coverUrl ? "Ganti foto" : "Upload foto"}
+        </button>
+        {ev.coverUrl && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={remove} disabled={busy}>
+            <Trash2 /> Hapus
+          </button>
+        )}
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png" hidden onChange={onFile} />
+
+      <hr className="divider" />
+      <div>
+        <h3 className={styles.subhead}>Belum ada foto? Pakai sampul desain</h3>
+        <p className="hint" style={{ marginTop: 4 }}>
+          Artwork mengikuti warna tema saat ini. Kalau tema diganti, klik lagi desainnya agar warnanya ikut berubah.
+        </p>
+      </div>
+      <div className={styles.designs}>
+        {COVER_STYLES.map((st) => (
+          <button type="button" key={st.id} className={styles.design} onClick={() => applyDesign(st.id)} disabled={busy}>
+            {previews[st.id] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previews[st.id]} alt="" />
+            ) : (
+              <span className={styles.designPh} />
+            )}
+            <span className={styles.designLabel}>
+              {st.name}
+              <small>Pakai</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Access: host token, Live Wall link, QR ---------- */
+
+function Access({
+  ev,
+  reveal,
+  onReveal,
+  onClearReveal,
+  onSaved,
+  onDefault,
+  onError,
+}: TabProps & {
+  reveal: string;
+  onReveal: (url: string) => void;
+  onClearReveal: () => void;
+  onSaved: (e: AdminEvent) => void;
+  onDefault: () => void;
+}) {
+  const origin = useOrigin();
+  const [busy, setBusy] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [error, setError] = useState("");
+  const [wallUrl, setWallUrl] = useState("");
+  const fetchQr = useCallback(() => api.admin.qr(ev.id), [ev.id]);
+  const rotateQr = useCallback(() => api.admin.rotateQr(ev.id), [ev.id]);
+
+  useEffect(() => {
+    api.admin
+      .displayLink(ev.id)
+      .then((r) => setWallUrl(r.url))
+      .catch(onError);
+  }, [ev.id, onError]);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      onError(err);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regenerate = () =>
+    run(async () => {
+      const res = await api.admin.regenerateHostToken(ev.id);
+      onSaved(res.event);
+      onReveal(res.hostAccessUrl);
+    });
+
+  const revoke = () =>
+    run(async () => {
+      onSaved(await api.admin.revokeHostToken(ev.id));
+      onClearReveal();
+      setConfirmRevoke(false);
+    });
+
+  const inviteUrl = origin ? `${origin}/?e=${encodeURIComponent(ev.slug)}` : "";
+
+  return (
+    <div className={styles.share}>
+      <div className={`card card-pad ${styles.stack}`}>
+        <h2>
+          <KeyRound size={18} /> Akses tuan rumah
+        </h2>
+        <p className="muted">
+          {ev.hostTokenActive
+            ? `Host token aktif sejak ${ev.hostTokenIssuedAt ? new Date(ev.hostTokenIssuedAt).toLocaleString("id-ID") : "-"}.`
+            : "Tidak ada host token aktif — tuan rumah tidak dapat membuka dashboard."}
+        </p>
+        {reveal && (
+          <div className={styles.tokenBox} role="status">
+            <strong>Salin sekarang — link ini hanya ditampilkan sekali.</strong>
+            <CopyRow label="Link akses tuan rumah" url={reveal} hint="Kirim langsung ke tuan rumah (WhatsApp pribadi). Server hanya menyimpan hash-nya." />
+            <button className="btn btn-sm btn-ghost" onClick={onClearReveal}>
+              Sudah saya salin
+            </button>
+          </div>
+        )}
+        {error && (
+          <div className="alert alert-error">
+            <AlertCircle /> {error}
+          </div>
+        )}
+        <div className={styles.row}>
+          <button className="btn btn-secondary btn-sm" onClick={regenerate} disabled={busy}>
+            <KeyRound /> {ev.hostTokenActive ? "Buat ulang host token" : "Buat host token"}
+          </button>
+          {ev.hostTokenActive &&
+            (confirmRevoke ? (
+              <span className={styles.confirm}>
+                <span>Cabut akses?</span>
+                <button className="btn btn-sm btn-ghost" onClick={() => setConfirmRevoke(false)}>
+                  Batal
+                </button>
+                <button className="btn btn-sm btn-danger" onClick={revoke} disabled={busy}>
+                  Cabut
+                </button>
+              </span>
+            ) : (
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRevoke(true)}>
+                Cabut akses
+              </button>
+            ))}
+        </div>
+        <p className="hint">Membuat ulang atau mencabut token langsung mengakhiri semua sesi tuan rumah yang sedang login.</p>
+
+        <hr className="divider" />
+        <CopyRow label="Link undangan" url={inviteUrl} />
+        <CopyRow label="Link Live Wall (layar acara, read-only)" url={wallUrl} />
+        <div className={styles.row}>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => run(async () => setWallUrl((await api.admin.rotateDisplayLink(ev.id)).url))}
+          >
+            Ganti link Live Wall
+          </button>
+          {!ev.isDefault && (
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await api.admin.setDefault(ev.id);
+                  onDefault();
+                })
+              }
+            >
+              <Star /> Jadikan acara utama (halaman /)
+            </button>
+          )}
+        </div>
+      </div>
+      <LiveQrPanel fetchQr={fetchQr} onRotate={rotateQr} />
+    </div>
+  );
+}
+
+/* ---------- Audit ---------- */
+
+function Audit({ eventId, onError }: { eventId: string; onError: (e: unknown) => void }) {
+  const [entries, setEntries] = useState<AuditEntry[] | null>(null);
+  useEffect(() => {
+    api.admin
+      .audit(eventId)
+      .then(setEntries)
+      .catch((err) => {
+        onError(err);
+        setEntries([]);
+      });
+  }, [eventId, onError]);
+
+  if (!entries) return <span className="spinner" />;
+  return (
+    <div className="card card-pad">
+      <h2>Audit log</h2>
+      {entries.length === 0 ? (
+        <p className="muted">Belum ada aktivitas.</p>
+      ) : (
+        <ul className={styles.audit} style={{ listStyle: "none", padding: 0, marginTop: 12 }}>
+          {entries.map((e) => (
+            <li key={e.id}>
+              <code>{e.action}</code>
+              <span className="subtle">
+                {e.actorType}
+                {e.targetId && e.targetId !== e.eventId ? ` → ${e.targetId}` : ""}
+              </span>
+              {e.metadata && (
+                <span className="subtle">
+                  {Object.entries(e.metadata)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(" · ")}
+                </span>
+              )}
+              <span className="subtle" style={{ marginLeft: "auto" }}>
+                {new Date(e.createdAt).toLocaleString("id-ID")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
