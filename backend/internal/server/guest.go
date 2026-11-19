@@ -284,6 +284,7 @@ func (s *Server) uploadAuthorize(w http.ResponseWriter, r *http.Request) {
 		GuestName   string         `json:"guestName"`
 		Wishes      string         `json:"wishes"`
 		Filter      string         `json:"filter"`
+		Mode        string         `json:"mode"` // "photobooth" (framed collage) or "moment" (plain photo)
 		ContentType string         `json:"contentType"`
 		Size        int64          `json:"size"`
 		Location    *locationInput `json:"location"`
@@ -348,6 +349,7 @@ func (s *Server) uploadAuthorize(w http.ResponseWriter, r *http.Request) {
 		GuestName:   guest,
 		Wishes:      wishes,
 		Filter:      filter,
+		Source:      photoSource(in.Mode),
 	}, s.cfg.ReservationTTL, store.MaxPhotosPerGuest)
 	for _, x := range expired {
 		_ = s.storage.Delete(r.Context(), x.ObjectKey)
@@ -490,4 +492,13 @@ func (s *Server) uploadCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	gs, _ = s.store.GuestSession(ev.ID, gs.ID)
 	writeJSON(w, http.StatusOK, s.guestView(gs, ev))
+}
+
+// photoSource records which photobooth mode produced an upload; anything
+// unknown counts as the framed photobooth collage.
+func photoSource(mode string) string {
+	if mode == "moment" {
+		return "moment"
+	}
+	return "photobooth"
 }

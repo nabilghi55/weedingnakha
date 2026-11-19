@@ -244,8 +244,21 @@
 /* ---------- Moderation ---------- */
 .modBar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 12px 16px;
+}
+
+/* photo count inside the Photobooth / Momen chips */
+.kindCount {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--cream);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .search {

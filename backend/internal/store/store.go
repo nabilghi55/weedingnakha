@@ -217,6 +217,7 @@ type Reservation struct {
 	GuestName      string            `json:"guestName"`
 	Wishes         string            `json:"wishes"`
 	Filter         string            `json:"filter"`
+	Source         string            `json:"source,omitempty"` // "photobooth" | "moment"
 	Status         ReservationStatus `json:"status"`
 	CreatedAt      time.Time         `json:"createdAt"`
 	ExpiresAt      time.Time         `json:"expiresAt"`
@@ -1034,7 +1035,7 @@ func (s *Store) ConfirmUpload(eventID, resID, sessionID string, p Photo) (Photo,
 		p.GuestName = r.GuestName
 		p.Wishes = r.Wishes
 		p.Filter = r.Filter
-		p.Source = "photobooth"
+		p.Source = orDefault(r.Source, "photobooth")
 		p.OriginalKey = r.ObjectKey
 		p.OriginalType = r.ContentType
 		p.Status = PhotoProcessing

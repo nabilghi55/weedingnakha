@@ -344,6 +344,7 @@ export default function PhotoboothPage() {
         guestName: name,
         wishes: wishes.trim(),
         filter,
+        mode: mode === "moment" ? "moment" : "photobooth",
         contentType: "image/jpeg",
         size: blob.size,
         location,

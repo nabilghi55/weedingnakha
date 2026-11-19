@@ -103,7 +103,8 @@ export interface Photo {
   guestName: string;
   wishes: string;
   filter: FilterId;
-  source: "upload" | "photobooth";
+  /** "photobooth" = framed collage, "moment" = plain photo; "upload" on old photos */
+  source: "upload" | "photobooth" | "moment";
   likes: number;
   createdAt: string;
   width?: number;
@@ -340,6 +341,7 @@ export const api = {
       guestName: string;
       wishes: string;
       filter: FilterId;
+      mode?: "photobooth" | "moment";
       contentType: string;
       size: number;
       location?: LocationFix;

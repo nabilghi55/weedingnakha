@@ -66,6 +66,18 @@ interface ModerationProps {
 }
 
 type ModFilter = "all" | "pending" | "hidden";
+type KindFilter = "all" | "photobooth" | "moment";
+
+/**
+ * Which photobooth mode a photo came from. Photos sent before the mode was
+ * recorded are told apart by shape: moments are portrait 3:4 (1080×1440),
+ * collages are 9:16 or 4:5.
+ */
+export function photoKind(p: Photo): "photobooth" | "moment" {
+  if (p.source === "moment") return "moment";
+  if (p.width && p.height && Math.abs(p.width / p.height - 3 / 4) < 0.02) return "moment";
+  return "photobooth";
+}
 
 interface ActionCtx {
   busyId: string | null;
@@ -194,6 +206,7 @@ function ModViewer({ list, index, onIndex, onClose, ctx }: { list: Photo[]; inde
           </div>
           <h2 className={lb.name}>{p.guestName}</h2>
           <div className={styles.tags}>
+            <span className={styles.tag}>{photoKind(p) === "moment" ? "Momen" : "Photobooth"}</span>
             {p.approval === "PENDING" && <span className={`${styles.tag} ${styles.tagWarn}`}>Menunggu persetujuan</span>}
             {p.hiddenFromWall && <span className={styles.tag}>Tersembunyi di Live Wall</span>}
             {p.hiddenFromGallery && <span className={styles.tag}>Tersembunyi di galeri</span>}
@@ -210,6 +223,7 @@ export function PhotoModeration({ photos, onAction, onDelete, downloadAllHref, o
   const [zipBusy, setZipBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ModFilter>("all");
+  const [kind, setKind] = useState<KindFilter>("all");
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -220,9 +234,10 @@ export function PhotoModeration({ photos, onAction, onDelete, downloadAllHref, o
     return photos.filter((p) => {
       if (filter === "pending" && p.approval !== "PENDING") return false;
       if (filter === "hidden" && !p.hiddenFromWall && !p.hiddenFromGallery) return false;
+      if (kind !== "all" && photoKind(p) !== kind) return false;
       return !q || p.guestName.toLowerCase().includes(q) || p.wishes.toLowerCase().includes(q);
     });
-  }, [photos, query, filter]);
+  }, [photos, query, filter, kind]);
 
   const run = async (p: Photo, fn: () => Promise<void>) => {
     setBusyId(p.id);
@@ -256,6 +271,26 @@ export function PhotoModeration({ photos, onAction, onDelete, downloadAllHref, o
           ).map(([id, label]) => (
             <button key={id} className={`chip ${filter === id ? "active" : ""}`} onClick={() => setFilter(id)}>
               {label}
+            </button>
+          ))}
+        </div>
+        <div className="chips" role="radiogroup" aria-label="Jenis foto">
+          {(
+            [
+              ["all", "Semua jenis"],
+              ["photobooth", "Photobooth"],
+              ["moment", "Momen"],
+            ] as [KindFilter, string][]
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              role="radio"
+              aria-checked={kind === id}
+              className={`chip ${kind === id ? "active" : ""}`}
+              onClick={() => setKind(id)}
+            >
+              {label}
+              {id !== "all" && <small className={styles.kindCount}>{photos.filter((p) => photoKind(p) === id).length}</small>}
             </button>
           ))}
         </div>
