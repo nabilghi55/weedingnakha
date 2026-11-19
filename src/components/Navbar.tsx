@@ -17,7 +17,7 @@ const LINKS = [
 /** Boutique header: event names · centered studio logo · menu. */
 export default function Navbar() {
   const pathname = usePathname();
-  const { event } = useApp();
+  const { event, eventScoped } = useApp();
   const isActive = (href: string) => pathname.startsWith(href);
   const names = eventName(event);
   const date = eventDateTime(event).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
@@ -27,8 +27,17 @@ export default function Navbar() {
       <header className={styles.header}>
         <div className={styles.inner}>
           <div className={styles.eventInfo}>
-            <span className={styles.names}>{names}</span>
-            <span className={styles.date}>{date}</span>
+            {eventScoped ? (
+              <>
+                <span className={styles.names}>{names}</span>
+                <span className={styles.date}>{date}</span>
+              </>
+            ) : (
+              <>
+                <span className={styles.names}>Photobooth &amp; Disposable</span>
+                <span className={styles.date}>{BRAND.instagram}</span>
+              </>
+            )}
           </div>
 
           <Link href="/photobooth" className={styles.brand} aria-label={`${BRAND.name} — Photobooth`}>
@@ -36,7 +45,7 @@ export default function Navbar() {
             <img src={BRAND.logo} alt="" className={styles.logo} width={512} height={341} />
             <span className={styles.wordmark}>{BRAND.name}</span>
             <span className={styles.mobileLine}>
-              <span aria-hidden="true">✦</span> {names} <span aria-hidden="true">✦</span>
+              <span aria-hidden="true">✦</span> {eventScoped ? names : "Photobooth & Disposable"} <span aria-hidden="true">✦</span>
             </span>
           </Link>
 

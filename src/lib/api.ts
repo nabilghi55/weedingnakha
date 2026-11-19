@@ -31,6 +31,11 @@ export type EventType = "wedding" | "campus" | "corporate";
 
 /** Public invitation data (no coordinates, tokens or internal IDs). */
 export interface WeddingEvent {
+  /**
+   * How the public API picked this event: "slug" (link/QR), "guest" (checked-in)
+   * or "default" (no context → show only the studio brand). Absent on host/admin data.
+   */
+  scope?: "slug" | "guest" | "default";
   slug: string;
   /** wedding: titled by groomName & brideName; other types: by title */
   type: EventType;
@@ -215,6 +220,7 @@ export type StreamMessage =
 export const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 export const DEFAULT_EVENT: WeddingEvent = {
+  scope: "default",
   slug: "",
   type: "wedding",
   title: "",

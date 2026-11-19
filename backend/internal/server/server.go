@@ -461,6 +461,10 @@ func (s *Server) staticSite() http.Handler {
 		}
 		if strings.HasPrefix(p, "/_next/static/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			// pages & public files: always revalidate (cheap 304 via Last-Modified),
+			// so a deploy shows up on the next load instead of a stale cached page
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 		switch {
 		case exists(p):

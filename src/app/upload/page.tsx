@@ -12,7 +12,7 @@ import { eventName } from "@/lib/format";
  * event. There is no file picker and no upload call on this page.
  */
 export default function UploadInfoPage() {
-  const { event } = useApp();
+  const { event, eventScoped } = useApp();
   const steps = [
     { icon: QrCode, text: "Scan QR photobooth yang tampil di lokasi acara." },
     { icon: Camera, text: `Ambil foto langsung dari kamera, pilih bingkai & filter, lalu kirim (maks. ${event.maxPhotosPerGuest} foto).` },
@@ -27,7 +27,7 @@ export default function UploadInfoPage() {
           </span>
           <h1>Kirim foto lewat Photobooth</h1>
           <p className="muted">
-            Untuk menjaga galeri {eventName(event)} tetap aman, foto hanya dapat dikirim melalui
+            Untuk menjaga galeri {eventScoped ? eventName(event) : "acara"} tetap aman, foto hanya dapat dikirim melalui
             Photobooth di lokasi acara.
           </p>
           <ol style={{ display: "grid", gap: 12, textAlign: "left", margin: "8px 0 4px", padding: 0, listStyle: "none" }}>

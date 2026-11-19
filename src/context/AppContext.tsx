@@ -9,6 +9,12 @@ export type GalleryAccess = "unknown" | "granted" | "denied";
 
 interface AppContextType {
   event: WeddingEvent;
+  /**
+   * False while the site only knows the server's default event (visitor has not
+   * scanned a QR or opened an event link): pages then show the studio brand,
+   * not that couple's names or theme.
+   */
+  eventScoped: boolean;
   photos: Photo[];
   status: Status;
   galleryAccess: GalleryAccess;
@@ -76,8 +82,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const applyEvent = useCallback((ev: WeddingEvent) => {
     setEventState(ev);
-    document.documentElement.setAttribute("data-theme", ev.theme);
+    // without an event context the studio's own maroon look is used
+    document.documentElement.setAttribute("data-theme", ev.scope === "default" ? "maroon" : ev.theme);
   }, []);
+  const eventScoped = event.scope !== "default";
 
   /** Loads event + gallery and returns the photo list (null on failure). */
   const load = useCallback(async (): Promise<Photo[] | null> => {
@@ -271,6 +279,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       event,
+      eventScoped,
       photos,
       status,
       galleryAccess,
@@ -284,7 +293,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hasMore,
       loadMore,
     }),
-    [event, photos, status, galleryAccess, incoming, likedIds, toggleLike, applyEvent, setSlug, refresh, galleryStats, hasMore, loadMore],
+    [event, eventScoped, photos, status, galleryAccess, incoming, likedIds, toggleLike, applyEvent, setSlug, refresh, galleryStats, hasMore, loadMore],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

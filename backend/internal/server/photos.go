@@ -26,6 +26,10 @@ import (
 // publicEvent is everything an invitation page may show. It deliberately
 // excludes coordinates, radius, tokens, versions and internal IDs.
 type publicEvent struct {
+	// Scope tells the site how this event was chosen: "slug" (link/QR),
+	// "guest" (checked-in guest) or "default" (no context — the site then
+	// shows only the studio brand, not this couple's names or theme).
+	Scope             string `json:"scope,omitempty"`
 	Slug              string `json:"slug"`
 	Type              string `json:"type"`
 	Title             string `json:"title"`
@@ -85,10 +89,13 @@ func (s *Server) getPublicEvent(w http.ResponseWriter, r *http.Request) {
 	slug := r.URL.Query().Get("slug")
 	var ev store.Event
 	var err error
+	scope := "default"
 	if slug != "" {
 		ev, err = s.store.EventBySlug(slug)
+		scope = "slug"
 	} else if _, gev, gerr := s.guestFromRequest(r); gerr == nil {
 		ev = gev // a checked-in guest sees their own event
+		scope = "guest"
 	} else {
 		ev, err = s.store.Event(s.store.DefaultEventID())
 	}
@@ -96,7 +103,9 @@ func (s *Server) getPublicEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "EVENT_NOT_FOUND", "Acara tidak ditemukan.")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.publicView(ev))
+	view := s.publicView(ev)
+	view.Scope = scope
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
