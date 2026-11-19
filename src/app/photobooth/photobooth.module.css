@@ -958,3 +958,66 @@
 .centerText {
   text-align: center;
 }
+
+/* ---------- mode choice: Photobooth (framed collage) · Momen (plain photo) ---------- */
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 12px 16px;
+  text-align: center;
+  border-radius: var(--radius-arch);
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-3);
+  transition: border-color 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.mode strong {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.mode small {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.modeIcon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--cream);
+  color: var(--accent);
+}
+
+.modeIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.modeOn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--ivory);
+  box-shadow: 0 14px 30px -18px rgba(var(--accent-rgb), 0.9);
+}
+
+.modeOn small {
+  color: rgba(251, 235, 217, 0.8);
+}
+
+.modeOn .modeIcon {
+  background: var(--ivory);
+}

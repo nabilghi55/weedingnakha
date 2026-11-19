@@ -145,7 +145,15 @@
 }
 
 @media (max-width: 860px) {
+  /* full-bleed maroon band behind the tab bar; its text sits above the bar */
   .footer {
     margin-bottom: 0;
+    padding: 22px var(--gutter) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 22px);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    line-height: 1.9;
+  }
+  .footer a {
+    display: block;
   }
 }

@@ -166,9 +166,7 @@ button {
   :root {
     --nav-h: 68px;
   }
-  .app-main:not(.bare) {
-    padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
-  }
+  /* the footer runs to the bottom edge and keeps its text above the tab bar */
 }
 
 .container {

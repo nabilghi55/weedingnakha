@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Camera, CheckCircle2, Clock, Download, Images, MapPin, MessageSquare, QrCode, RefreshCw, RotateCcw, Send } from "lucide-react";
+import { AlertCircle, Camera, CheckCircle2, Clock, Download, Image as ImageIcon, Images, LayoutGrid, MapPin, MessageSquare, QrCode, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { api, ApiError, photoSrc, putFile, type FilterId, type GuestSession, type LocationFix } from "@/lib/api";
 import { getDeviceId, getPosition, LocationError, OUTSIDE_AREA_MESSAGE } from "@/lib/guest";
 import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
-import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, loadCustomFrame, renderCollage } from "@/lib/frames";
+import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, loadCustomFrame, renderCollage, renderFrame } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
 import { BRAND } from "@/lib/brand";
 import CameraScreen from "./CameraScreen";
@@ -66,6 +66,9 @@ function saveName(name: string) {
   }
 }
 
+/** Moment photos are portrait 3:4, without a frame. */
+const MOMENT_ASPECT = 3 / 4;
+
 export default function PhotoboothPage() {
   const { event, setSlug } = useApp();
   const [access, setAccess] = useState<Access>({ kind: "checking" });
@@ -115,6 +118,17 @@ export default function PhotoboothPage() {
       alive = false;
     };
   }, [event.frameUrl]);
+
+  // "booth" = framed collage of several poses · "moment" = one plain photo, no frame
+  const [mode, setMode] = useState<"booth" | "moment">("booth");
+  const roll = mode === "moment" ? 1 : poses;
+  const rollAspects = mode === "moment" ? [MOMENT_ASPECT] : aspects;
+  /** The image a session produces: the collage, or the plain moment photo. */
+  const renderOutput = useCallback(
+    (credit: boolean) =>
+      mode === "moment" ? renderFrame(shots[0], "plain", filter, event, { credit }) : renderCollage(shots, filter, event, { credit }),
+    [mode, shots, filter, event],
+  );
 
   // remembered name from an earlier session on this phone
   useEffect(() => {
@@ -199,17 +213,17 @@ export default function PhotoboothPage() {
 
   // Compose the collage whenever the poses or the filter change.
   useEffect(() => {
-    if (stage === "intro" || stage === "shoot" || shots.length < poses) return;
+    if (stage === "intro" || stage === "shoot" || shots.length < roll) return;
     let alive = true;
     ensureFrameFonts().then(() => {
       if (!alive) return;
-      const canvas = renderCollage(shots, filter, event);
+      const canvas = renderOutput(true);
       setCollage({ canvas, url: canvas.toDataURL("image/jpeg", 0.9) });
     });
     return () => {
       alive = false;
     };
-  }, [stage, shots, filter, event, poses]);
+  }, [stage, shots, roll, renderOutput]);
 
   const remaining = session?.remaining ?? 0;
 
@@ -246,9 +260,9 @@ export default function PhotoboothPage() {
       const n = shots.length + 1;
       setShots((s) => [...s, snap]);
       setThumbs((t) => [...t, thumb]);
-      if (n >= poses) setStage("result");
+      if (n >= roll) setStage("result");
     },
-    [retakeIdx, shots.length, poses],
+    [retakeIdx, shots.length, roll],
   );
 
   const retakePose = (i: number) => {
@@ -305,7 +319,7 @@ export default function PhotoboothPage() {
   /** Uploads the collage (one photo of the device quota). */
   const post = async (freshFix?: LocationFix) => {
     const name = guestName.trim();
-    if (!session || !name || remaining <= 0 || shots.length < poses || posting) return;
+    if (!session || !name || remaining <= 0 || shots.length < roll || posting) return;
     saveName(name);
     setError("");
     setLocIssue(false);
@@ -324,7 +338,7 @@ export default function PhotoboothPage() {
       await ensureFrameFonts();
       // upload the version without the studio credit: the server keeps it clean
       // for the couple and adds its own watermark to the gallery copy
-      const clean = renderCollage(shots, filter, event, { credit: false });
+      const clean = renderOutput(false);
       const blob = await canvasToBlob(clean, "image/jpeg", 0.9);
       const auth = await api.guest.authorize({
         guestName: name,
@@ -430,29 +444,36 @@ export default function PhotoboothPage() {
             <p className={styles.tagline}>{eventName(event)}</p>,
           )}
           <div className={`card card-pad ${styles.intro}`}>
-            <ol className={styles.steps}>
-              <li>
-                <span>1</span>
-                <div>
-                  <strong>Bergaya {poses} pose</strong>
-                  <small>Tekan tombol, hitung mundur 3 detik, cekrek!</small>
-                </div>
-              </li>
-              <li>
-                <span>2</span>
-                <div>
-                  <strong>Jadi kolase otomatis</strong>
-                  <small>Lengkap dengan nama {isWedding(event) ? "pengantin" : "acara"} &amp; tanggal.</small>
-                </div>
-              </li>
-              <li>
-                <span>3</span>
-                <div>
-                  <strong>Kirim {isWedding(event) ? "ke pengantin" : "ke penyelenggara"}</strong>
-                  <small>Tampil di galeri &amp; layar acara.</small>
-                </div>
-              </li>
-            </ol>
+            <div className={styles.modes} role="radiogroup" aria-label="Pilih jenis foto">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "booth"}
+                className={`${styles.mode} ${mode === "booth" ? styles.modeOn : ""}`}
+                onClick={() => setMode("booth")}
+              >
+                <span className={styles.modeIcon}>
+                  <LayoutGrid />
+                </span>
+                <strong>Photobooth</strong>
+                <small>
+                  {poses} pose jadi satu kolase{event.frameUrl ? " dengan bingkai acara" : ""}
+                </small>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "moment"}
+                className={`${styles.mode} ${mode === "moment" ? styles.modeOn : ""}`}
+                onClick={() => setMode("moment")}
+              >
+                <span className={styles.modeIcon}>
+                  <ImageIcon />
+                </span>
+                <strong>Momen</strong>
+                <small>1 foto bebas, tanpa bingkai</small>
+              </button>
+            </div>
 
             {remaining > 0 ? (
               <form onSubmit={startSession} className={styles.form}>
@@ -473,7 +494,7 @@ export default function PhotoboothPage() {
                   <Camera /> Mulai Foto
                 </button>
                 <p className={`hint ${styles.centerText}`}>
-                  Sisa {remaining} sesi untuk HP ini · 1 sesi = 1 kolase
+                  Sisa {remaining} kiriman untuk HP ini · 1 kolase atau 1 momen = 1 kiriman
                 </p>
               </form>
             ) : (
@@ -504,8 +525,8 @@ export default function PhotoboothPage() {
         filter={filter}
         onFilter={setFilter}
         shotCount={shots.length}
-        rollSize={poses}
-        aspects={aspects}
+        rollSize={roll}
+        aspects={rollAspects}
         retakeIndex={retakeIdx}
         thumbs={thumbs}
         onCapture={onCapture}
@@ -528,12 +549,12 @@ export default function PhotoboothPage() {
   return (
     <div className="page">
       <div className="container-narrow">
-        {head(posted ? <>Terkirim!</> : <>Kolasemu <em>jadi!</em></>)}
+        {head(posted ? <>Terkirim!</> : mode === "moment" ? <>Momenmu <em>jadi!</em></> : <>Kolasemu <em>jadi!</em></>)}
 
         <div className={styles.collageWrap}>
           {collage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={collage.url} alt="Kolase photobooth" className={styles.collage} />
+            <img src={collage.url} alt={mode === "moment" ? "Foto momen" : "Kolase photobooth"} className={styles.collage} />
           ) : (
             <div className={styles.collageLoading}>
               <span className="spinner" />
@@ -548,8 +569,8 @@ export default function PhotoboothPage() {
             </span>
             <p className="muted">
               {pendingApproval
-                ? "Kolasemu menunggu persetujuan tuan rumah sebelum tampil di galeri dan layar acara."
-                : "Kolasemu sedang diproses dan segera tayang di galeri dan layar acara. Terima kasih sudah ikut meramaikan!"}
+                ? `${mode === "moment" ? "Fotomu" : "Kolasemu"} menunggu persetujuan tuan rumah sebelum tampil di galeri dan layar acara.`
+                : `${mode === "moment" ? "Fotomu" : "Kolasemu"} sedang diproses dan segera tayang di galeri dan layar acara. Terima kasih sudah ikut meramaikan!`}
             </p>
             <button className="btn btn-primary btn-block" onClick={shareInstagram} disabled={sharing || !collage}>
               {sharing ? <span className="spinner" /> : <Instagram />} Share ke Instagram
@@ -566,7 +587,7 @@ export default function PhotoboothPage() {
                     resetRoll();
                     setWishes("");
                     setShowWishes(false);
-                    setStage("shoot");
+                    setStage("intro");
                   }}
                 >
                   <Camera /> Foto lagi
@@ -622,6 +643,14 @@ export default function PhotoboothPage() {
                     {posting ? <span className="spinner" /> : <Send />}{" "}
                     {posting ? `Mengirim…${posting.pct ? ` ${posting.pct}%` : ""}` : sendLabel}
                   </button>
+                  <button type="button" className="btn btn-secondary btn-block" onClick={shareInstagram} disabled={sharing || !collage}>
+                    {sharing ? <span className="spinner" /> : <Instagram />} Upload ke Instagram
+                  </button>
+                  {shareMsg && (
+                    <p className={`hint ${styles.centerText}`} role="status">
+                      {shareMsg}
+                    </p>
+                  )}
                   {!editingName && guestName.trim() && (
                     <p className={`hint ${styles.centerText}`}>
                       Dikirim sebagai <strong>{guestName.trim()}</strong> ·{" "}
@@ -648,10 +677,14 @@ export default function PhotoboothPage() {
                 </>
               ) : (
                 <>
-                  <p className="hint">Kuota kirim HP ini sudah habis. Kolase tetap bisa disimpan dan dibagikan.</p>
+                  <p className="hint">Kuota kirim HP ini sudah habis. Fotomu tetap bisa disimpan dan dibagikan.</p>
+                  <button className="btn btn-primary btn-block" onClick={shareInstagram} disabled={sharing || !collage}>
+                    {sharing ? <span className="spinner" /> : <Instagram />} Upload ke Instagram
+                  </button>
                   <button className="btn btn-secondary btn-block" onClick={download} disabled={!collage}>
                     <Download /> Simpan ke HP
                   </button>
+                  {shareMsg && <p className="hint" role="status">{shareMsg}</p>}
                 </>
               )}
             </div>
