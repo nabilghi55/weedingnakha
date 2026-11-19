@@ -741,7 +741,7 @@ function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEv
         <li>
           File <strong>PNG</strong> dengan area <strong>transparan</strong> (bolong) tempat foto tamu terlihat.
         </li>
-        <li>Potret atau persegi. Disarankan 1080 × 1350 px (4:5) atau 1080 × 1920 px (9:16).</li>
+        <li>Ukuran Instagram Story: 1080 × 1920 px (9:16). Rasio lain tetap bisa, ditaruh di tengah hasil 9:16.</li>
         <li>Foto tamu mengisi seluruh bidang di bawah bingkai, jadi letakkan teks &amp; logo di pinggir.</li>
       </ul>
       {error && (

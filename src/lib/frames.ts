@@ -128,7 +128,7 @@ export function collagePoses() {
 /** Width/height of each pose: the frame window's shape, else square cells. */
 export function collageAspects(): number[] {
   if (custom?.holes.length) return custom.holes.map((h) => h.w / h.h);
-  return Array.from({ length: COLLAGE_POSES }, () => 1);
+  return Array.from({ length: COLLAGE_POSES }, () => CELL_ASPECT);
 }
 
 const W = 1000;
@@ -152,6 +152,8 @@ export async function ensureFrameFonts() {
       document.fonts.load(`700 24px ${cssVar("--font-news", "serif")}`),
       document.fonts.load(`italic 400 24px ${cssVar("--font-news", "serif")}`),
       document.fonts.load(`italic 500 80px ${serif}`),
+      document.fonts.load(`400 56px ${cssVar("--font-display", "serif")}`),
+      document.fonts.load(`italic 500 80px ${cssVar("--font-elegant", "serif")}`),
       document.fonts.load(`800 40px ${sans}`),
       document.fonts.load(`600 24px ${sans}`),
     ])]);
@@ -495,12 +497,18 @@ export function takeSnapshot(video: HTMLVideoElement, mirror: boolean, zoom = 1,
 /** Photos per photobooth session; they become one 2×2 collage. */
 export const COLLAGE_POSES = 4;
 
+/** Instagram Story size: every photobooth collage is 1080×1920 (9:16). */
+export const STORY_W = 1080;
+export const STORY_H = 1920;
+/** Built-in collage cells are portrait 4:5. */
+const CELL_ASPECT = 4 / 5;
+
 /**
- * Photobooth collage ("The Wedding Post" photo page): masthead, dateline, a
- * 2×2 grid of square poses and the couple's names. 1080×1350 (4:5) so it fits
- * an Instagram feed post and the Live Wall alike. Empty slots (while shooting)
- * are drawn as numbered placeholders. `credit: false` leaves the bottom-right
- * corner empty for the server watermark.
+ * Built-in photobooth collage (Instagram Story, 1080×1920): cream card with a
+ * fine wine double border, the event name on top, a 2×2 grid of portrait
+ * poses and the studio wordmark below. Empty slots (while shooting) are
+ * numbered placeholders. `credit: false` leaves the bottom-right corner empty
+ * for the server watermark.
  */
 export function renderCollage(
   shots: (Source | null | undefined)[],
@@ -510,74 +518,75 @@ export function renderCollage(
 ) {
   // the organiser's frame (with photo windows) replaces the built-in layout
   if (custom?.holes.length) return renderFrameCollage(shots, filter);
-  const CW = 1080;
-  const CH = 1350;
-  const P = 48;
-  const GAP = 18;
-  const ink = "#1c0507";
-  const paper = "#fbebd9";
-  const headline = cssVar("--font-playfair", "Georgia, serif");
-  const news = cssVar("--font-news", "Georgia, serif");
+  const CW = STORY_W;
+  const CH = STORY_H;
+  const wine = "#5b2226";
+  const ink = "#4a1c22";
+  const cream = "#fbebd9";
+  const display = cssVar("--font-display", "Georgia, serif");
+  const elegant = cssVar("--font-elegant", "Georgia, serif");
+  const sans = cssVar("--font-jakarta", "sans-serif");
 
   const canvas = document.createElement("canvas");
   canvas.width = CW;
   canvas.height = CH;
   const ctx = canvas.getContext("2d")!;
   const cx = CW / 2;
-  const L = P;
-  const R = CW - P;
-  const rule = (y: number, h: number) => {
-    ctx.fillStyle = ink;
-    ctx.fillRect(L, y, R - L, h);
-  };
 
-  ctx.fillStyle = paper;
+  ctx.fillStyle = cream;
   ctx.fillRect(0, 0, CW, CH);
+  // double hairline border, like the brand's printed cards
+  ctx.strokeStyle = wine;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(30, 30, CW - 60, CH - 60);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(42, 42, CW - 84, CH - 84);
 
-  // masthead + dateline
-  const title = MASTHEAD[ev.type ?? "wedding"] ?? MASTHEAD.wedding;
-  const mPx = fitSize(ctx, title, (px) => `900 ${px}px ${headline}`, 70, R - L);
-  aligned(ctx, title, cx, 88, `900 ${mPx}px ${headline}`, ink, "center", -1);
-  rule(108, 2);
+  // header: kicker · names · date
+  aligned(ctx, "\u2726  PHOTOBOOTH  \u2726", cx, 150, `700 24px ${sans}`, wine, "center", 8);
+  const names = eventName(ev);
+  ctx.save();
+  const nPx = fitSize(ctx, names, (px) => `italic 500 ${px}px ${elegant}`, 104, CW - 200);
+  ctx.restore();
+  aligned(ctx, names, cx, 268, `italic 500 ${nPx}px ${elegant}`, ink, "center", 0, CW - 200);
   const date = ev.eventDate
     ? eventDateTime(ev).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }).toUpperCase()
     : "";
-  aligned(ctx, date, L, 138, `400 19px ${news}`, ink, "left", 2, 300);
-  aligned(ctx, "EDISI PHOTOBOOTH", cx, 138, `700 19px ${news}`, ink, "center", 4);
-  aligned(ctx, (ev.venue || (isWedding(ev) ? "Hari Bahagia" : "Hari Istimewa")).toUpperCase(), R, 138, `400 19px ${news}`, ink, "right", 2, 280);
-  rule(152, 3);
-  rule(159, 1);
+  if (date) aligned(ctx, date, cx, 330, `600 24px ${sans}`, wine, "center", 6);
 
-  // 2×2 grid of square poses
-  const top = 178;
-  const cell = (R - L - GAP) / 2;
+  // 2×2 grid of portrait 4:5 poses
+  const L = 72;
+  const GAP = 20;
+  const cw = (CW - L * 2 - GAP) / 2;
+  const chh = cw / CELL_ASPECT;
+  const top = 392;
   for (let i = 0; i < COLLAGE_POSES; i++) {
-    const x = L + (i % 2) * (cell + GAP);
-    const y = top + Math.floor(i / 2) * (cell + GAP);
+    const x = L + (i % 2) * (cw + GAP);
+    const y = top + Math.floor(i / 2) * (chh + GAP);
     const shot = shots[i];
     if (shot) {
-      drawCover(ctx, shot, filter, x, y, cell, cell);
+      drawCover(ctx, shot, filter, x, y, cw, chh);
     } else {
-      ctx.fillStyle = "rgba(28,5,7,0.08)";
-      ctx.fillRect(x, y, cell, cell);
-      aligned(ctx, String(i + 1), x + cell / 2, y + cell / 2 + 40, `italic 500 120px ${headline}`, "rgba(28,5,7,0.25)", "center");
+      ctx.fillStyle = "rgba(91,34,38,0.08)";
+      ctx.fillRect(x, y, cw, chh);
+      aligned(ctx, String(i + 1), x + cw / 2, y + chh / 2 + 40, `italic 500 120px ${elegant}`, "rgba(91,34,38,0.3)", "center");
     }
   }
-  const gridEnd = top + cell * 2 + GAP;
+  const gridEnd = top + chh * 2 + GAP;
 
-  // names + footer
-  ctx.save();
-  const names = eventName(ev);
-  const nPx = fitSize(ctx, names, (px) => `italic 500 ${px}px ${headline}`, 66, R - L - 40);
-  ctx.restore();
-  aligned(ctx, names, cx, gridEnd + 82, `italic 500 ${nPx}px ${headline}`, ink, "center", 0, R - L);
-  rule(gridEnd + 110, 1);
-  const fy = gridEnd + 146;
-  aligned(ctx, credit ? BRAND.name.toUpperCase() : "VOL. I · NO. 1", L, fy, `700 18px ${news}`, ink, "left", 3, 300);
+  // footer: hashtag · ornament · wordmark · handle
   const tag = ev.hashtag?.trim();
-  aligned(ctx, tag ? (tag.startsWith("#") ? tag : `#${tag}`) : "HARGA: SATU SENYUMAN", cx, fy, `italic 400 20px ${news}`, ink, "center", 1, 360);
-  // without credit the right corner stays empty: the server watermark goes there
-  if (credit) aligned(ctx, BRAND.instagram.toUpperCase(), R, fy, `400 18px ${news}`, ink, "right", 3, 300);
+  if (tag) aligned(ctx, tag.startsWith("#") ? tag : `#${tag}`, cx, gridEnd + 70, `italic 500 40px ${elegant}`, ink, "center", 0, CW - 200);
+  const oy = gridEnd + (tag ? 118 : 86);
+  ctx.fillStyle = wine;
+  ctx.fillRect(cx - 120, oy, 90, 1.5);
+  ctx.fillRect(cx + 30, oy, 90, 1.5);
+  ctx.beginPath();
+  ctx.arc(cx, oy + 0.75, 5, 0, Math.PI * 2);
+  ctx.fill();
+  aligned(ctx, BRAND.name.toUpperCase(), cx, oy + 82, `400 56px ${display}`, ink, "center", 14);
+  // without credit the handle is left out: the server watermark goes in the corner
+  if (credit) aligned(ctx, BRAND.instagram, cx, oy + 128, `600 22px ${sans}`, wine, "center", 3);
 
   return canvas;
 }
@@ -585,13 +594,18 @@ export function renderCollage(
 /**
  * Collage on the organiser's frame: each pose fills one transparent window
  * (slightly oversized so no gap shows at the frame's edges), then the PNG is
- * laid on top. Output is 1080 px wide at the frame's own aspect ratio.
+ * laid on top. Output is always an Instagram Story (1080×1920).
  */
 function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId) {
   const { img, holes } = custom!;
-  const CW = 1080;
-  const k = CW / img.naturalWidth;
-  const CH = Math.round(img.naturalHeight * k);
+  const CW = STORY_W;
+  const CH = STORY_H;
+  // fit the frame inside the story (a 9:16 PNG fills it exactly), centred
+  const k = Math.min(CW / img.naturalWidth, CH / img.naturalHeight);
+  const fw = img.naturalWidth * k;
+  const fh = img.naturalHeight * k;
+  const ox = (CW - fw) / 2;
+  const oy = (CH - fh) / 2;
   const canvas = document.createElement("canvas");
   canvas.width = CW;
   canvas.height = CH;
@@ -601,8 +615,8 @@ function renderFrameCollage(shots: (Source | null | undefined)[], filter: Filter
   const serif = cssVar("--font-playfair", "Georgia, serif");
   holes.forEach((hole, i) => {
     const bleed = Math.max(4, Math.min(hole.w, hole.h) * k * 0.02);
-    const x = hole.x * k - bleed;
-    const y = hole.y * k - bleed;
+    const x = ox + hole.x * k - bleed;
+    const y = oy + hole.y * k - bleed;
     const w = hole.w * k + bleed * 2;
     const h = hole.h * k + bleed * 2;
     const shot = shots[i];
@@ -614,6 +628,6 @@ function renderFrameCollage(shots: (Source | null | undefined)[], filter: Filter
       aligned(ctx, String(i + 1), x + w / 2, y + h / 2 + 36, `italic 500 110px ${serif}`, "rgba(28,5,7,0.25)", "center");
     }
   });
-  ctx.drawImage(img, 0, 0, CW, CH);
+  ctx.drawImage(img, ox, oy, fw, fh);
   return canvas;
 }
