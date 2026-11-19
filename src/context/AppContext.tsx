@@ -53,18 +53,30 @@ function readLiked(): Set<string> {
   }
 }
 
+/** True when the slug came from an explicit ?e=… link on this page load. */
+let slugFromUrl = false;
+
 /** Event slug from ?e=… (remembered), or the last one used on this browser. */
 function readSlug(): string {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("e");
     if (fromUrl && /^[a-z0-9-]{1,60}$/.test(fromUrl)) {
       localStorage.setItem(SLUG_KEY, fromUrl);
+      slugFromUrl = true;
       return fromUrl;
     }
     return localStorage.getItem(SLUG_KEY) ?? "";
   } catch {
     return "";
   }
+}
+
+/** A remembered event is forgotten this long after it ended. */
+const REMEMBER_AFTER_END_MS = 3 * 24 * 60 * 60 * 1000;
+
+function endedLongAgo(ev: WeddingEvent) {
+  const end = new Date(`${ev.eventDate}T${ev.endTime || ev.eventTime || "23:59"}:00`);
+  return !Number.isNaN(end.getTime()) && Date.now() - end.getTime() > REMEMBER_AFTER_END_MS;
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -92,6 +104,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (slug === null) return null;
     try {
       const ev = await api.getEvent(slug || undefined);
+      // an event remembered from an old visit (not an explicit ?e= link) stops
+      // following this browser a few days after it ended → back to the brand page
+      if (slug && ev.scope === "slug" && !slugFromUrl && endedLongAgo(ev)) {
+        try {
+          localStorage.removeItem(SLUG_KEY);
+        } catch {
+          /* ignore */
+        }
+        setSlugState("");
+        return null;
+      }
       applyEvent(ev);
       let list: Photo[] = [];
       try {
