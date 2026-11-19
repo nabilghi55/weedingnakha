@@ -43,7 +43,7 @@ function layoutColumns(photos: Photo[], n: number) {
 }
 
 export default function GalleryPage() {
-  const { photos, event, status, galleryAccess, hasMore, loadMore } = useApp();
+  const { photos, event, eventScoped, status, galleryAccess, hasMore, loadMore } = useApp();
   const [loadingMore, setLoadingMore] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const visible = photos;
@@ -60,7 +60,7 @@ export default function GalleryPage() {
             Momen dari <em>para tamu</em>
           </h1>
           <p className={styles.subtitle}>
-            Foto candid dan ucapan terbaik untuk {eventName(event)}.
+            {eventScoped ? `Foto candid dan ucapan terbaik untuk ${eventName(event)}.` : "Foto candid dan ucapan terbaik dari para tamu."}
           </p>
         </header>
 

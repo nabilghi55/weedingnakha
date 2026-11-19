@@ -83,9 +83,10 @@
 }
 
 .name {
-  font-size: 1.8rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: 1.9rem;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
 }
 
 .wish {

@@ -140,7 +140,7 @@
 .masonry {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
+  gap: 14px;
 }
 
 .col {
@@ -200,5 +200,11 @@
 @media (max-width: 380px) {
   .masonry {
     columns: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .masonry {
+    gap: 8px;
   }
 }
