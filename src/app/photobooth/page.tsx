@@ -10,6 +10,7 @@ import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
 import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, frameWindows, loadCustomFrame, renderCollage, renderFrame, selectCustomFrame } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
 import { BRAND } from "@/lib/brand";
+import { filterStyle } from "@/components/FilterPicker";
 import CameraScreen from "./CameraScreen";
 import styles from "./photobooth.module.css";
 import { eventName, isWedding, momentCaption } from "@/lib/format";
@@ -80,7 +81,11 @@ export default function PhotoboothPage() {
   const [shots, setShots] = useState<Snapshot[]>([]);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [retakeIdx, setRetakeIdx] = useState<number | null>(null);
+  // live filter of the camera; each pose keeps the one it was taken with
   const [filter, setFilter] = useState<FilterId>("none");
+  const [shotFilters, setShotFilters] = useState<FilterId[]>([]);
+  // result screen: which pose the filter chips change (null = every pose)
+  const [filterPose, setFilterPose] = useState<number | null>(null);
   const [collage, setCollage] = useState<Rendered | null>(null);
 
   const [guestName, setGuestName] = useState("");
@@ -146,8 +151,10 @@ export default function PhotoboothPage() {
   /** The image a session produces: the collage, or the plain moment photo. */
   const renderOutput = useCallback(
     (credit: boolean) =>
-      mode === "moment" ? renderFrame(shots[0], "plain", filter, event, { credit }) : renderCollage(shots, filter, event, { credit }),
-    [mode, shots, filter, event],
+      mode === "moment"
+        ? renderFrame(shots[0], "plain", shotFilters[0] ?? filter, event, { credit })
+        : renderCollage(shots, shotFilters, event, { credit }),
+    [mode, shots, shotFilters, filter, event],
   );
 
   // remembered name from an earlier session on this phone
@@ -249,6 +256,8 @@ export default function PhotoboothPage() {
 
   const resetRoll = () => {
     setShots([]);
+    setShotFilters([]);
+    setFilterPose(null);
     setThumbs([]);
     setCollage(null);
     setRetakeIdx(null);
@@ -272,6 +281,7 @@ export default function PhotoboothPage() {
       if (retakeIdx !== null) {
         const i = retakeIdx;
         setShots((s) => s.map((x, j) => (j === i ? snap : x)));
+        setShotFilters((f) => f.map((x, j) => (j === i ? filter : x)));
         setThumbs((t) => t.map((x, j) => (j === i ? thumb : x)));
         setRetakeIdx(null);
         setStage("result");
@@ -279,17 +289,28 @@ export default function PhotoboothPage() {
       }
       const n = shots.length + 1;
       setShots((s) => [...s, snap]);
+      setShotFilters((f) => [...f, filter]);
       setThumbs((t) => [...t, thumb]);
       if (n >= roll) setStage("result");
     },
-    [retakeIdx, shots.length, roll],
+    [retakeIdx, shots.length, roll, filter],
   );
 
   const retakePose = (i: number) => {
+    // the camera starts on the filter this pose had
+    if (shotFilters[i]) setFilter(shotFilters[i]);
     setRetakeIdx(i);
     setError("");
     setStage("shoot");
   };
+
+  // result screen filter chips: change one pose, or every pose at once
+  const pickResultFilter = (id: FilterId) => {
+    setFilter(id);
+    setShotFilters((f) => f.map((x, i) => (filterPose === null || i === filterPose ? id : x)));
+  };
+  const chipOn = (id: FilterId) =>
+    filterPose === null ? shotFilters.length > 0 && shotFilters.every((x) => x === id) : shotFilters[filterPose] === id;
 
   const fileName = () => `seribu-lensa-${eventName(event).replace(/&/g, "")}-${Date.now()}.jpg`.toLowerCase().replace(/\s+/g, "-");
 
@@ -363,7 +384,7 @@ export default function PhotoboothPage() {
       const auth = await api.guest.authorize({
         guestName: name,
         wishes: wishes.trim(),
-        filter,
+        filter: shotFilters[0] ?? filter,
         mode: mode === "moment" ? "moment" : "photobooth",
         contentType: "image/jpeg",
         size: blob.size,
@@ -742,13 +763,33 @@ export default function PhotoboothPage() {
                 {thumbs.map((t, i) => (
                   <button key={i} className={styles.retakeBtn} onClick={() => retakePose(i)} disabled={!!posting} aria-label={`Ulang pose ${i + 1}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={t} alt="" />
+                    <img src={t} alt="" style={filterStyle(shotFilters[i] ?? "none")} />
                     <span>
                       <RotateCcw /> {i + 1}
                     </span>
                   </button>
                 ))}
               </div>
+
+              {thumbs.length > 1 && (
+                <div>
+                  <h3 className={styles.groupTitle}>Ganti filter untuk</h3>
+                  <div className={styles.filterRow} role="radiogroup" aria-label="Pose yang diganti filternya">
+                    {[null, ...thumbs.map((_, i) => i)].map((p) => (
+                      <button
+                        key={p ?? "all"}
+                        role="radio"
+                        aria-checked={filterPose === p}
+                        className={`chip ${filterPose === p ? "active" : ""}`}
+                        onClick={() => setFilterPose(p)}
+                        disabled={!!posting}
+                      >
+                        {p === null ? "Semua pose" : `Pose ${p + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {FILTER_GROUPS.map((g) => (
                 <div key={g.id}>
@@ -758,9 +799,9 @@ export default function PhotoboothPage() {
                       <button
                         key={f.id}
                         role="radio"
-                        aria-checked={filter === f.id}
-                        className={`chip ${filter === f.id ? "active" : ""}`}
-                        onClick={() => setFilter(f.id)}
+                        aria-checked={chipOn(f.id)}
+                        className={`chip ${chipOn(f.id) ? "active" : ""}`}
+                        onClick={() => pickResultFilter(f.id)}
                         disabled={!!posting}
                         style={{ "--dot": f.color } as React.CSSProperties}
                       >

@@ -523,6 +523,11 @@ export function takeSnapshot(
   return canvas;
 }
 
+/** The filter of pose `i`: the shared one, or that pose's own. */
+function poseFilter(filter: FilterId | readonly FilterId[], i: number): FilterId {
+  return typeof filter === "string" ? filter : (filter[i] ?? "none");
+}
+
 /** Photos per photobooth session; they become one 2×2 collage. */
 export const COLLAGE_POSES = 4;
 
@@ -541,12 +546,14 @@ const CELL_ASPECT = 4 / 5;
  */
 export function renderCollage(
   shots: (Source | null | undefined)[],
-  filter: FilterId,
+  /** one filter for every pose, or one per pose (index = pose) */
+  filter: FilterId | readonly FilterId[],
   ev: WeddingEvent,
   { credit = true }: { credit?: boolean } = {},
 ) {
   // the organiser's frame (with photo windows) replaces the built-in layout
   if (custom?.holes.length) return renderFrameCollage(shots, filter);
+  const filterAt = (i: number) => poseFilter(filter, i);
   const CW = STORY_W;
   const CH = STORY_H;
   const wine = "#5b2226";
@@ -594,7 +601,7 @@ export function renderCollage(
     const y = top + Math.floor(i / 2) * (chh + GAP);
     const shot = shots[i];
     if (shot) {
-      drawCover(ctx, shot, filter, x, y, cw, chh);
+      drawCover(ctx, shot, filterAt(i), x, y, cw, chh);
     } else {
       ctx.fillStyle = "rgba(91,34,38,0.08)";
       ctx.fillRect(x, y, cw, chh);
@@ -625,7 +632,7 @@ export function renderCollage(
  * (slightly oversized so no gap shows at the frame's edges), then the PNG is
  * laid on top. Output is always an Instagram Story (1080×1920).
  */
-function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId) {
+function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId | readonly FilterId[]) {
   const { img, holes } = custom!;
   const CW = STORY_W;
   const CH = STORY_H;
@@ -650,7 +657,7 @@ function renderFrameCollage(shots: (Source | null | undefined)[], filter: Filter
     const h = hole.h * k + bleed * 2;
     const shot = shots[i];
     if (shot) {
-      drawCover(ctx, shot, filter, x, y, w, h);
+      drawCover(ctx, shot, poseFilter(filter, i), x, y, w, h);
     } else {
       ctx.fillStyle = "rgba(28,5,7,0.08)";
       ctx.fillRect(x, y, w, h);
