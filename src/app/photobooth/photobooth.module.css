@@ -306,10 +306,19 @@
 .posted {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   text-align: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: 26px 20px 20px;
+}
+
+.posted > p {
+  margin-bottom: 6px;
+  line-height: 1.55;
+}
+
+.posted .row {
+  margin-top: 2px;
 }
 
 .posted h2 {
@@ -318,6 +327,7 @@
 }
 
 .postedIcon {
+  align-self: center;
   display: grid;
   place-items: center;
   width: 64px;
