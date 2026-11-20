@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -29,28 +30,29 @@ type publicEvent struct {
 	// Scope tells the site how this event was chosen: "slug" (link/QR),
 	// "guest" (checked-in guest) or "default" (no context — the site then
 	// shows only the studio brand, not this couple's names or theme).
-	Scope             string `json:"scope,omitempty"`
-	Slug              string `json:"slug"`
-	Type              string `json:"type"`
-	Title             string `json:"title"`
-	GroomName         string `json:"groomName"`
-	BrideName         string `json:"brideName"`
-	GroomParent       string `json:"groomParent"`
-	BrideParent       string `json:"brideParent"`
-	EventDate         string `json:"eventDate"`
-	EventTime         string `json:"eventTime"`
-	EndTime           string `json:"endTime"`
-	Venue             string `json:"venue"`
-	VenueAddress      string `json:"venueAddress"`
-	MapsURL           string `json:"mapsUrl"`
-	Hashtag           string `json:"hashtag"`
-	Theme             string `json:"theme"`
-	CoverURL          string `json:"coverUrl"`
-	FrameURL          string `json:"frameUrl"`
-	Status            string `json:"status"`
-	PhotoboothOpen    bool   `json:"photoboothOpen"`
-	GalleryVisibility string `json:"galleryVisibility"`
-	MaxPhotosPerGuest int    `json:"maxPhotosPerGuest"`
+	Scope             string     `json:"scope,omitempty"`
+	Slug              string     `json:"slug"`
+	Type              string     `json:"type"`
+	Title             string     `json:"title"`
+	GroomName         string     `json:"groomName"`
+	BrideName         string     `json:"brideName"`
+	GroomParent       string     `json:"groomParent"`
+	BrideParent       string     `json:"brideParent"`
+	EventDate         string     `json:"eventDate"`
+	EventTime         string     `json:"eventTime"`
+	EndTime           string     `json:"endTime"`
+	Venue             string     `json:"venue"`
+	VenueAddress      string     `json:"venueAddress"`
+	MapsURL           string     `json:"mapsUrl"`
+	Hashtag           string     `json:"hashtag"`
+	Theme             string     `json:"theme"`
+	CoverURL          string     `json:"coverUrl"`
+	FrameURL          string     `json:"frameUrl"` // first frame (older clients)
+	Frames            []frameRef `json:"frames"`
+	Status            string     `json:"status"`
+	PhotoboothOpen    bool       `json:"photoboothOpen"`
+	GalleryVisibility string     `json:"galleryVisibility"`
+	MaxPhotosPerGuest int        `json:"maxPhotosPerGuest"`
 }
 
 func (s *Server) publicView(ev store.Event) publicEvent {
@@ -59,9 +61,14 @@ func (s *Server) publicView(ev store.Event) publicEvent {
 	if ev.CoverKey != "" {
 		cover = fmt.Sprintf("/api/public/events/%s/cover?v=%d", url.PathEscape(ev.Slug), ev.UpdatedAt.Unix())
 	}
+	frames := []frameRef{}
+	for _, k := range ev.Frames() {
+		id := frameID(k)
+		frames = append(frames, frameRef{ID: id, URL: fmt.Sprintf("/api/public/events/%s/frames/%s?v=%d", url.PathEscape(ev.Slug), url.PathEscape(id), ev.UpdatedAt.Unix())})
+	}
 	frame := ""
-	if ev.FrameKey != "" {
-		frame = fmt.Sprintf("/api/public/events/%s/frame?v=%d", url.PathEscape(ev.Slug), ev.UpdatedAt.Unix())
+	if len(frames) > 0 {
+		frame = frames[0].URL
 	}
 	return publicEvent{
 		Slug: ev.Slug, Type: ev.Kind(), Title: ev.Title, GroomName: ev.GroomName, BrideName: ev.BrideName,
@@ -69,7 +76,7 @@ func (s *Server) publicView(ev store.Event) publicEvent {
 		EventDate: start.Format("2006-01-02"), EventTime: start.Format("15:04"),
 		EndTime: ev.EndAt.In(store.EventLocation).Format("15:04"),
 		Venue:   ev.Venue, VenueAddress: ev.VenueAddr, MapsURL: ev.MapsURL, Hashtag: ev.Hashtag,
-		Theme: ev.Theme, CoverURL: cover, FrameURL: frame, Status: string(ev.Status),
+		Theme: ev.Theme, CoverURL: cover, FrameURL: frame, Frames: frames, Status: string(ev.Status),
 		PhotoboothOpen:    s.booth(ev).Open,
 		GalleryVisibility: string(ev.GalleryVisibility),
 		MaxPhotosPerGuest: store.MaxPhotosPerGuest,
@@ -121,11 +128,36 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 // photobooth can draw it into a canvas without tainting it cross-origin.
 func (s *Server) getFrame(w http.ResponseWriter, r *http.Request) {
 	ev, err := s.store.EventBySlug(r.PathValue("slug"))
-	if err != nil || ev.FrameKey == "" {
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	s.serveObject(w, r, ev.FrameKey, "public, max-age=3600", true)
+	keys := ev.Frames()
+	key := ""
+	if fid := r.PathValue("fid"); fid != "" {
+		for _, k := range keys {
+			if frameID(k) == fid {
+				key = k
+			}
+		}
+	} else if len(keys) > 0 {
+		key = keys[0] // legacy URL: the first frame
+	}
+	if key == "" {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveObject(w, r, key, "public, max-age=3600", true)
+}
+
+type frameRef struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
+}
+
+// frameID is a frame's public id: its object key's file name without ".png".
+func frameID(key string) string {
+	return strings.TrimSuffix(path.Base(key), ".png")
 }
 
 // ---------- Gallery access ----------

@@ -23,6 +23,8 @@ import {
   api,
   ApiError,
   downloadAdminZip,
+  eventFrames,
+  MAX_FRAMES,
   photoSrc,
   setAdminKey,
   type AdminEvent,
@@ -693,6 +695,8 @@ function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEv
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const frames = eventFrames(ev);
+  const full = frames.length >= MAX_FRAMES;
 
   const run = async (fn: () => Promise<AdminEvent>) => {
     setBusy(true);
@@ -712,7 +716,7 @@ function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEv
     e.target.value = "";
     if (!file) return;
     if (file.type !== "image/png") {
-      setError("Bingkai harus berupa file PNG dengan latar transparan.");
+      setError("Bingkai harus berupa file PNG.");
       return;
     }
     void run(() => api.admin.uploadFrame(ev.id, file));
@@ -723,26 +727,50 @@ function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEv
       <div>
         <h2>Bingkai photobooth</h2>
         <p className="hint" style={{ marginTop: 4 }}>
-          Upload bingkai khusus acara ini. Tamu akan melihatnya sebagai pilihan pertama, dan bingkai ini otomatis terpilih.
+          Upload sampai {MAX_FRAMES} bingkai khusus acara ini ({frames.length}/{MAX_FRAMES} terpakai). Kalau lebih dari satu, tamu memilih
+          bingkainya sebelum mulai foto.
         </p>
       </div>
-      <div className={styles.frameBox}>
-        {ev.frameUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={photoSrc(ev.frameUrl)} alt="Bingkai photobooth" />
-        ) : (
+      {frames.length ? (
+        <div className={styles.frameGrid}>
+          {frames.map((f, i) => (
+            <div key={f.id} className={styles.frameItem}>
+              <div className={styles.frameBox}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoSrc(f.url)} alt={`Bingkai ${i + 1}`} />
+              </div>
+              <div className={styles.row}>
+                <strong className={styles.frameName}>Bingkai {i + 1}</strong>
+                {f.id !== "legacy" && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => run(() => api.admin.deleteFrame(ev.id, f.id))}
+                    disabled={busy}
+                  >
+                    <Trash2 /> Hapus
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={styles.frameBox}>
           <div className={styles.coverEmpty}>
             <ImagePlus />
             <span>Belum ada bingkai khusus</span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       <ul className={styles.frameRules}>
         <li>
-          File <strong>PNG</strong> dengan area <strong>transparan</strong> (bolong) tempat foto tamu terlihat.
+          File <strong>PNG</strong>. Area foto tamu boleh <strong>transparan</strong> (bolong) atau diisi <strong>hijau</strong>{" "}
+          (greenscreen), jadi desain Canva bisa langsung di-export tanpa dikosongkan.
         </li>
+        <li>Kalau pakai hijau, jangan pakai warna hijau di bagian lain desain, karena ikut jadi area foto.</li>
         <li>Ukuran Instagram Story: 1080 × 1920 px (9:16). Rasio lain tetap bisa, ditaruh di tengah hasil 9:16.</li>
-        <li>Foto tamu mengisi seluruh bidang di bawah bingkai, jadi letakkan teks &amp; logo di pinggir.</li>
+        <li>Setiap kotak foto jadi satu pose: 2 kotak = 2 pose, 3 kotak = 3 pose.</li>
       </ul>
       {error && (
         <div className="alert alert-error">
@@ -750,14 +778,9 @@ function CustomFrame({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEv
         </div>
       )}
       <div className={styles.row}>
-        <button type="button" className="btn btn-dark btn-sm" onClick={() => fileRef.current?.click()} disabled={busy}>
-          {busy ? <span className="spinner" /> : <ImagePlus />} {ev.frameUrl ? "Ganti bingkai" : "Upload bingkai"}
+        <button type="button" className="btn btn-dark btn-sm" onClick={() => fileRef.current?.click()} disabled={busy || full}>
+          {busy ? <span className="spinner" /> : <ImagePlus />} {full ? `Maksimal ${MAX_FRAMES} bingkai` : "Tambah bingkai"}
         </button>
-        {ev.frameUrl && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => run(() => api.admin.deleteFrame(ev.id))} disabled={busy}>
-            <Trash2 /> Hapus
-          </button>
-        )}
       </div>
       <input ref={fileRef} type="file" accept="image/png" hidden onChange={onFile} />
     </div>

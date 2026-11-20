@@ -122,6 +122,20 @@ const (
 var EventTypes = map[string]bool{TypeWedding: true, TypeCampus: true, TypeCorporate: true}
 
 // Kind returns the event type; events saved before types existed are weddings.
+// MaxFrames is how many custom photobooth frames an event may have.
+const MaxFrames = 3
+
+// Frames returns the event's custom frame keys (older events stored one in FrameKey).
+func (e Event) Frames() []string {
+	if len(e.FrameKeys) > 0 {
+		return e.FrameKeys
+	}
+	if e.FrameKey != "" {
+		return []string{e.FrameKey}
+	}
+	return nil
+}
+
 func (e Event) Kind() string {
 	if EventTypes[e.Type] {
 		return e.Type
@@ -153,19 +167,20 @@ type Event struct {
 	Status EventStatus `json:"status"`
 
 	// Invitation content (public).
-	Type        string `json:"type,omitempty"`  // wedding (default) | campus | corporate
-	Title       string `json:"title,omitempty"` // event name for non-wedding types
-	GroomName   string `json:"groomName"`
-	BrideName   string `json:"brideName"`
-	GroomParent string `json:"groomParent"`
-	BrideParent string `json:"brideParent"`
-	Venue       string `json:"venue"`
-	VenueAddr   string `json:"venueAddress"`
-	MapsURL     string `json:"mapsUrl"`
-	Hashtag     string `json:"hashtag"`
-	Theme       string `json:"theme"`
-	CoverKey    string `json:"coverKey,omitempty"`
-	FrameKey    string `json:"frameKey,omitempty"` // custom photobooth frame (transparent PNG)
+	Type        string   `json:"type,omitempty"`  // wedding (default) | campus | corporate
+	Title       string   `json:"title,omitempty"` // event name for non-wedding types
+	GroomName   string   `json:"groomName"`
+	BrideName   string   `json:"brideName"`
+	GroomParent string   `json:"groomParent"`
+	BrideParent string   `json:"brideParent"`
+	Venue       string   `json:"venue"`
+	VenueAddr   string   `json:"venueAddress"`
+	MapsURL     string   `json:"mapsUrl"`
+	Hashtag     string   `json:"hashtag"`
+	Theme       string   `json:"theme"`
+	CoverKey    string   `json:"coverKey,omitempty"`
+	FrameKey    string   `json:"frameKey,omitempty"`  // legacy single frame; read through Frames()
+	FrameKeys   []string `json:"frameKeys,omitempty"` // custom photobooth frames (transparent PNGs), at most MaxFrames
 
 	// Schedule + geofence (private to host/admin).
 	StartAt      time.Time `json:"startAt"`
@@ -1361,7 +1376,9 @@ func (s *Store) ReferencedKeys() map[string]bool {
 	for _, sh := range s.allShards() {
 		sh.read(func(d *eventData) {
 			add(d.Event.CoverKey)
-			add(d.Event.FrameKey)
+			for _, k := range d.Event.Frames() {
+				add(k)
+			}
 			for _, p := range d.Photos {
 				if p.DeletedAt == nil && p.Status != PhotoFailed {
 					add(p.DisplayKey)

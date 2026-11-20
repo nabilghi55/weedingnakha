@@ -23,7 +23,7 @@ export const FRAMES: FrameDef[] = [
   { id: "accent", name: "Warna Tema", desc: "Mengikuti warna acara", swatch: "var(--accent)" },
 ];
 
-/** The organiser's own frame (transparent PNG uploaded in Admin). */
+/** The organiser's own frame (transparent or greenscreen PNG uploaded in Admin). */
 export const CUSTOM_FRAME: FrameDef = {
   id: "custom",
   name: "Bingkai Acara",
@@ -99,20 +99,37 @@ function detectHoles(img: HTMLImageElement): Hole[] {
   return holes.map(({ x, y, w, h }) => ({ x, y, w, h }));
 }
 
-/** Loads (once) the event's custom frame so the renderers can draw it synchronously. */
+const loaded = new Map<string, { url: string; img: HTMLImageElement; holes: Hole[] }>();
+
+/**
+ * Loads (once) one of the event's custom frames so the renderers can draw it
+ * synchronously. It becomes the active frame only through selectCustomFrame,
+ * so a slow download can never replace a frame picked after it.
+ */
 export function loadCustomFrame(url: string): Promise<boolean> {
-  if (custom?.url === url) return Promise.resolve(true);
+  if (loaded.has(url)) return Promise.resolve(true);
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous"; // keep the canvas exportable
     img.decoding = "async";
     img.onload = () => {
-      custom = { url, img, holes: detectHoles(img) };
+      loaded.set(url, { url, img, holes: detectHoles(img) });
       resolve(true);
     };
     img.onerror = () => resolve(false);
     img.src = url;
   });
+}
+
+/** Makes a loaded frame the one the collage uses; false when it is not loaded. */
+export function selectCustomFrame(url: string): boolean {
+  custom = loaded.get(url) ?? null;
+  return custom !== null;
+}
+
+/** Photo windows of a loaded frame (0 when not loaded or not a photo frame). */
+export function frameWindows(url: string): number {
+  return loaded.get(url)?.holes.length ?? 0;
 }
 
 /** Forgets the custom frame (event without one). */

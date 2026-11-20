@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Camera, CheckCircle2, Clock, Download, Image as ImageIcon, Images, LayoutGrid, MapPin, MessageSquare, QrCode, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { api, ApiError, photoSrc, putFile, type FilterId, type GuestSession, type LocationFix } from "@/lib/api";
+import { api, ApiError, eventFrames, photoSrc, putFile, type FilterId, type GuestSession, type LocationFix } from "@/lib/api";
 import { getDeviceId, getPosition, LocationError, OUTSIDE_AREA_MESSAGE } from "@/lib/guest";
 import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
-import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, loadCustomFrame, renderCollage, renderFrame } from "@/lib/frames";
+import { clearCustomFrame, COLLAGE_POSES, collageAspects, collagePoses, ensureFrameFonts, frameWindows, loadCustomFrame, renderCollage, renderFrame, selectCustomFrame } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
 import { BRAND } from "@/lib/brand";
 import CameraScreen from "./CameraScreen";
@@ -96,28 +96,48 @@ export default function PhotoboothPage() {
   const [sharing, setSharing] = useState(false);
   const [shareMsg, setShareMsg] = useState("");
 
-  // poses per session: one per window of the event's own frame (else the 2×2 collage)
+  // the event's own frames (up to 3): the guest picks one, the first by default
+  const frames = eventFrames(event);
+  const frameKey = frames.map((f) => f.url).join("|");
+  const [frameId, setFrameId] = useState("");
+  const activeFrame = frames.find((f) => f.id === frameId) ?? frames[0];
+  const activeUrl = activeFrame ? photoSrc(activeFrame.url) : "";
+  // photo windows per frame, once its PNG is loaded (shown in the picker)
+  const [windows, setWindows] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true;
+    for (const url of frameKey ? frameKey.split("|") : []) {
+      loadCustomFrame(photoSrc(url)).then((ok) => {
+        if (alive && ok) setWindows((w) => ({ ...w, [url]: frameWindows(photoSrc(url)) }));
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [frameKey]);
+
+  // poses per session: one per window of the chosen frame (else the 2×2 collage)
   const [poses, setPoses] = useState(COLLAGE_POSES);
   const [aspects, setAspects] = useState<number[]>(() => Array.from({ length: COLLAGE_POSES }, () => 1));
   useEffect(() => {
     let alive = true;
-    if (!event.frameUrl) {
+    if (!activeUrl) {
       clearCustomFrame();
       // eslint-disable-next-line react-hooks/set-state-in-effect -- mirrors the event's frame setting
       setPoses(COLLAGE_POSES);
       setAspects(collageAspects());
       return;
     }
-    loadCustomFrame(photoSrc(event.frameUrl)).then((ok) => {
+    loadCustomFrame(activeUrl).then((ok) => {
       if (!alive) return;
-      if (!ok) clearCustomFrame();
+      if (!ok || !selectCustomFrame(activeUrl)) clearCustomFrame();
       setPoses(collagePoses());
       setAspects(collageAspects());
     });
     return () => {
       alive = false;
     };
-  }, [event.frameUrl]);
+  }, [activeUrl]);
 
   // "booth" = framed collage of several poses · "moment" = one plain photo, no frame
   const [mode, setMode] = useState<"booth" | "moment">("booth");
@@ -458,7 +478,7 @@ export default function PhotoboothPage() {
                 </span>
                 <strong>Photobooth</strong>
                 <small>
-                  {poses} pose jadi satu kolase{event.frameUrl ? " dengan bingkai acara" : ""}
+                  {poses} pose jadi satu kolase{frames.length ? " dengan bingkai acara" : ""}
                 </small>
               </button>
               <button
@@ -475,6 +495,32 @@ export default function PhotoboothPage() {
                 <small>1 foto bebas, tanpa bingkai</small>
               </button>
             </div>
+
+            {mode === "booth" && frames.length > 1 && (
+              <div className={styles.framePick}>
+                <span className={styles.label}>Pilih bingkai</span>
+                <div className={styles.frameList} role="radiogroup" aria-label="Pilih bingkai">
+                  {frames.map((f, i) => {
+                    const on = f.id === activeFrame?.id;
+                    const n = windows[f.url];
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        className={`${styles.frameOpt} ${on ? styles.frameOptOn : ""}`}
+                        onClick={() => setFrameId(f.id)}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photoSrc(f.url)} alt={`Bingkai ${i + 1}`} />
+                        <small>{n ? `${n} pose` : `Bingkai ${i + 1}`}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {remaining > 0 ? (
               <form onSubmit={startSession} className={styles.form}>

@@ -296,15 +296,14 @@ func EncodeFrame(data []byte) ([]byte, error) {
 	rgba := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	draw.Draw(rgba, rgba.Bounds(), src, b.Min, draw.Src)
 
-	// at least 10% of the frame must be see-through, or the photo is hidden
-	clear := 0
-	for i := 3; i < len(rgba.Pix); i += 4 {
-		if rgba.Pix[i] < 128 {
-			clear++
+	// at least 10% of the frame must be see-through, or the photo is hidden.
+	// A frame without transparency may mark its photo windows in green
+	// instead (greenscreen, e.g. a Canva export): those become transparent.
+	if clearShare(rgba) < 0.1 {
+		keyGreen(rgba)
+		if clearShare(rgba) < 0.1 {
+			return nil, ErrFrameOpaque
 		}
-	}
-	if clear*10 < len(rgba.Pix)/4 {
-		return nil, ErrFrameOpaque
 	}
 
 	var buf bytes.Buffer
@@ -313,4 +312,42 @@ func EncodeFrame(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// clearShare is the fraction of (mostly) transparent pixels.
+func clearShare(img *image.RGBA) float64 {
+	clear := 0
+	for i := 3; i < len(img.Pix); i += 4 {
+		if img.Pix[i] < 128 {
+			clear++
+		}
+	}
+	return float64(clear) / float64(len(img.Pix)/4)
+}
+
+// keyGreen makes green-screen pixels transparent (chroma key). "Green" is
+// relative: how far the green channel rises above red and blue, so any
+// clearly green fill works (#00FF00, Canva's softer greens, a pattern laid
+// over the green). Pixels on the edge of a green area get partial alpha and
+// lose their green tint, so no green fringe shows around the guest photo.
+func keyGreen(img *image.RGBA) {
+	const lo, hi = 20, 45 // green dominance: below lo kept, above hi fully clear
+	p := img.Pix
+	for i := 0; i+3 < len(p); i += 4 {
+		r, g, b := int(p[i]), int(p[i+1]), int(p[i+2])
+		d := g - max(r, b)
+		if d <= lo || g < 60 {
+			continue
+		}
+		keep := 1.0 - float64(d-lo)/float64(hi-lo)
+		if keep < 0 {
+			keep = 0
+		}
+		// RGBA is premultiplied: colour channels scale with alpha
+		g = max(r, b) // despill
+		p[i] = uint8(float64(r) * keep)
+		p[i+1] = uint8(float64(g) * keep)
+		p[i+2] = uint8(float64(b) * keep)
+		p[i+3] = uint8(float64(p[i+3]) * keep)
+	}
 }

@@ -40,6 +40,20 @@ export type GalleryVisibility = "PUBLIC" | "GUESTS" | "PRIVATE";
 export type EventType = "wedding" | "campus" | "corporate";
 
 /** Public invitation data (no coordinates, tokens or internal IDs). */
+/** Most custom photobooth frames per event. */
+export const MAX_FRAMES = 3;
+
+export interface EventFrame {
+  id: string;
+  url: string;
+}
+
+/** The event's frames, also for servers that only send `frameUrl`. */
+export function eventFrames(ev: { frameUrl: string; frames?: EventFrame[] }): EventFrame[] {
+  if (ev.frames?.length) return ev.frames;
+  return ev.frameUrl ? [{ id: "legacy", url: ev.frameUrl }] : [];
+}
+
 export interface WeddingEvent {
   /**
    * How the public API picked this event: "slug" (link/QR), "guest" (checked-in)
@@ -63,8 +77,10 @@ export interface WeddingEvent {
   hashtag: string;
   theme: ThemeId;
   coverUrl: string;
-  /** custom photobooth frame (transparent PNG), "" when none */
+  /** first custom photobooth frame, "" when none (older servers only send this) */
   frameUrl: string;
+  /** the event's custom photobooth frames (transparent PNGs), at most MAX_FRAMES */
+  frames?: EventFrame[];
   status: EventStatus;
   photoboothOpen: boolean;
   galleryVisibility: GalleryVisibility;
@@ -249,6 +265,7 @@ export const DEFAULT_EVENT: WeddingEvent = {
   theme: "maroon",
   coverUrl: "",
   frameUrl: "",
+  frames: [],
   status: "DRAFT",
   photoboothOpen: false,
   galleryVisibility: "GUESTS",
@@ -411,7 +428,8 @@ export const api = {
       form.append("frame", frame, "frame.png");
       return request<AdminEvent>(`/api/admin/events/${id}/frame`, { method: "POST", body: form });
     },
-    deleteFrame: (id: string) => request<AdminEvent>(`/api/admin/events/${id}/frame`, { method: "DELETE" }),
+    deleteFrame: (id: string, frameId: string) =>
+      request<AdminEvent>(`/api/admin/events/${id}/frames/${encodeURIComponent(frameId)}`, { method: "DELETE" }),
     photos: (id: string) => request<{ photos: Photo[] }>(`/api/admin/events/${id}/photos`),
     moderate: (id: string, photoId: string, action: ModerationAction, target: ModerationTarget = "both") =>
       request<Photo>(`/api/admin/events/${id}/photos/${photoId}/${action}`, json("POST", { target })),

@@ -352,6 +352,10 @@ func (s *Server) adminUploadFrame(w http.ResponseWriter, r *http.Request, a acto
 	if !ok {
 		return
 	}
+	if len(ev.Frames()) >= store.MaxFrames {
+		writeErr(w, http.StatusConflict, "FRAMES_FULL", framesFullMsg)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxUploadBytes+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		writeErr(w, http.StatusRequestEntityTooLarge, "TOO_LARGE", "Ukuran bingkai maksimal 10 MB.")
@@ -376,9 +380,9 @@ func (s *Server) adminUploadFrame(w http.ResponseWriter, r *http.Request, a acto
 		case errors.Is(err, imageproc.ErrFrameShape):
 			msg = "Bingkai harus potret atau persegi (rasio 1:1 sampai 9:16), sisi terpendek minimal 600 px."
 		case errors.Is(err, imageproc.ErrFrameOpaque):
-			msg = "Bingkai harus punya area transparan (bolong) tempat foto tamu terlihat."
+			msg = "Bingkai harus punya area transparan (bolong) atau hijau (greenscreen) tempat foto tamu terlihat."
 		case errors.Is(err, imageproc.ErrFrameType):
-			msg = "Bingkai harus berupa file PNG dengan latar transparan."
+			msg = "Bingkai harus berupa file PNG."
 		}
 		writeErr(w, http.StatusUnprocessableEntity, "INVALID_FRAME", msg)
 		return
@@ -388,32 +392,81 @@ func (s *Server) adminUploadFrame(w http.ResponseWriter, r *http.Request, a acto
 		writeErr(w, http.StatusBadGateway, "STORAGE", "Gagal menyimpan bingkai.")
 		return
 	}
-	s.setFrame(w, r, a, ev, key)
+	s.changeFrames(w, r, a, ev, func(keys []string) ([]string, error) {
+		if len(keys) >= store.MaxFrames {
+			return nil, errFramesFull
+		}
+		return append(keys, key), nil
+	}, key)
 }
 
 func (s *Server) adminDeleteFrame(w http.ResponseWriter, r *http.Request, a actor) {
-	if ev, ok := s.adminEventFor(w, r); ok {
-		s.setFrame(w, r, a, ev, "")
+	ev, ok := s.adminEventFor(w, r)
+	if !ok {
+		return
 	}
+	fid := r.PathValue("fid") // empty on the legacy route: remove every frame
+	s.changeFrames(w, r, a, ev, func(keys []string) ([]string, error) {
+		out := []string{}
+		for _, k := range keys {
+			if fid != "" && frameID(k) != fid {
+				out = append(out, k)
+			}
+		}
+		if fid != "" && len(out) == len(keys) {
+			return nil, store.ErrNotFound
+		}
+		return out, nil
+	}, "")
 }
 
-func (s *Server) setFrame(w http.ResponseWriter, r *http.Request, a actor, ev store.Event, key string) {
-	old := ev.FrameKey
+const framesFullMsg = "Maksimal 3 bingkai per acara. Hapus salah satu dulu."
+
+var errFramesFull = errors.New("frames full")
+
+// changeFrames rewrites the event's frame list with fn (under the event lock),
+// then deletes the objects of frames that were dropped. `added` is a freshly
+// stored object, removed again if the change fails.
+func (s *Server) changeFrames(w http.ResponseWriter, r *http.Request, a actor, ev store.Event, fn func([]string) ([]string, error), added string) {
+	var dropped []string
 	updated, err := s.store.UpdateEvent(ev.ID, func(e *store.Event) error {
-		e.FrameKey = key
+		old := e.Frames()
+		next, err := fn(append([]string(nil), old...))
+		if err != nil {
+			return err
+		}
+		keep := map[string]bool{}
+		for _, k := range next {
+			keep[k] = true
+		}
+		dropped = dropped[:0]
+		for _, k := range old {
+			if !keep[k] {
+				dropped = append(dropped, k)
+			}
+		}
+		e.FrameKey = ""
+		e.FrameKeys = next
 		return nil
 	})
 	if err != nil {
-		if key != "" {
-			_ = s.storage.Delete(r.Context(), key)
+		if added != "" {
+			_ = s.storage.Delete(r.Context(), added)
 		}
-		writeErr(w, http.StatusInternalServerError, "INTERNAL", "Gagal menyimpan bingkai.")
+		switch {
+		case errors.Is(err, errFramesFull):
+			writeErr(w, http.StatusConflict, "FRAMES_FULL", framesFullMsg)
+		case errors.Is(err, store.ErrNotFound):
+			writeErr(w, http.StatusNotFound, "FRAME_NOT_FOUND", "Bingkai tidak ditemukan.")
+		default:
+			writeErr(w, http.StatusInternalServerError, "INTERNAL", "Gagal menyimpan bingkai.")
+		}
 		return
 	}
-	if old != "" && old != key {
-		_ = s.storage.Delete(r.Context(), old)
+	for _, k := range dropped {
+		_ = s.storage.Delete(r.Context(), k)
 	}
-	s.logAudit(a, ev.ID, "event.frame_change", ev.ID, map[string]string{"removed": itoa(boolInt(key == ""))})
+	s.logAudit(a, ev.ID, "event.frame_change", ev.ID, map[string]string{"frames": itoa(len(updated.Frames())), "removed": itoa(len(dropped))})
 	s.hub.Publish(ev.ID, "event.updated", nil)
 	writeJSON(w, http.StatusOK, s.adminView(updated))
 }

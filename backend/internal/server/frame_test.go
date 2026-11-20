@@ -87,5 +87,88 @@ func TestCustomFrame(t *testing.T) {
 
 func frameKey(h *harness, id string) string {
 	ev, _ := h.st.Event(id)
-	return ev.FrameKey
+	if k := ev.Frames(); len(k) > 0 {
+		return k[0]
+	}
+	return ""
+}
+
+// greenFramePNG is an opaque frame whose photo window is painted green
+// (a greenscreen export, e.g. from Canva) instead of being transparent.
+func greenFramePNG(w, h, border int, green color.NRGBA) []byte {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := color.NRGBA{31, 78, 138, 255}
+			if x >= border && y >= border && x < w-border && y < h-border {
+				c = green
+			}
+			img.Set(x, y, c)
+		}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+func TestGreenscreenFrame(t *testing.T) {
+	h := newHarness(t)
+	ev := h.event("green")
+	adm := h.admin()
+	for _, g := range []color.NRGBA{{0, 255, 0, 255}, {95, 192, 110, 255}} {
+		rec := adm.uploadFrame(ev.ID, greenFramePNG(1080, 1920, 120, g))
+		expect(t, rec, http.StatusOK)
+	}
+	pub := decode[map[string]any](t, h.client().do("GET", "/api/public/event?slug=green", nil))
+	frames, _ := pub["frames"].([]any)
+	if len(frames) != 2 {
+		t.Fatalf("frames = %v, want 2", pub["frames"])
+	}
+	for _, f := range frames {
+		got := h.client().raw("GET", f.(map[string]any)["url"].(string), nil, "")
+		expect(t, got, http.StatusOK)
+		img, err := png.Decode(bytes.NewReader(got.Body.Bytes()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, a := img.At(540, 960).RGBA(); a != 0 {
+			t.Fatal("green window was not keyed out")
+		}
+		if _, _, _, a := img.At(10, 10).RGBA(); a != 0xffff {
+			t.Fatal("blue border lost its opacity")
+		}
+	}
+}
+
+func TestFrameLimit(t *testing.T) {
+	h := newHarness(t)
+	ev := h.event("limit")
+	adm := h.admin()
+	for i := 0; i < 3; i++ {
+		expect(t, adm.uploadFrame(ev.ID, framePNG(1080, 1350, 60)), http.StatusOK)
+	}
+	expect(t, adm.uploadFrame(ev.ID, framePNG(1080, 1350, 60)), http.StatusConflict)
+
+	pub := decode[map[string]any](t, h.client().do("GET", "/api/public/event?slug=limit", nil))
+	frames, _ := pub["frames"].([]any)
+	if len(frames) != 3 {
+		t.Fatalf("frames = %d, want 3", len(frames))
+	}
+	first := frames[0].(map[string]any)
+	if pub["frameUrl"] != first["url"] {
+		t.Fatal("frameUrl should be the first frame")
+	}
+
+	// delete one by id: two left, its URL gone, a new upload fits again
+	rec := adm.do("DELETE", "/api/admin/events/"+ev.ID+"/frames/"+first["id"].(string), nil)
+	expect(t, rec, http.StatusOK)
+	if n := len(decode[map[string]any](t, rec)["frames"].([]any)); n != 2 {
+		t.Fatalf("frames after delete = %d, want 2", n)
+	}
+	expect(t, h.client().raw("GET", first["url"].(string), nil, ""), http.StatusNotFound)
+	expect(t, adm.do("DELETE", "/api/admin/events/"+ev.ID+"/frames/nope", nil), http.StatusNotFound)
+	expect(t, adm.uploadFrame(ev.ID, framePNG(1080, 1350, 60)), http.StatusOK)
+	if n := len(h.st.ReferencedKeys()); n < 3 {
+		t.Fatalf("referenced keys = %d", n)
+	}
 }
