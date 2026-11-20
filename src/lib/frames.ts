@@ -490,15 +490,27 @@ export function renderFrame(
  * Grabs a portrait (3:4) frame from the video, mirrored for the selfie camera.
  * `zoom` > 1 crops the centre (digital zoom, matching the CSS-scaled preview).
  */
-export function takeSnapshot(video: HTMLVideoElement, mirror: boolean, zoom = 1, aspect = 3 / 4) {
+export function takeSnapshot(
+  video: HTMLVideoElement,
+  mirror: boolean,
+  zoom = 1,
+  aspect = 3 / 4,
+  /** exact centred crop in video pixels (what the on-screen guide shows); overrides zoom */
+  crop?: { w: number; h: number },
+) {
   // largest centred width:height = aspect rect, then crop further for digital zoom
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   let h = Math.min(vh, vw / aspect);
   let w = h * aspect;
-  const z = Math.max(1, zoom);
-  w = Math.round(w / z);
-  h = Math.round(h / z);
+  if (crop && crop.w > 0 && crop.h > 0) {
+    w = Math.round(Math.min(vw, crop.w));
+    h = Math.round(Math.min(vh, crop.h));
+  } else {
+    const z = Math.max(1, zoom);
+    w = Math.round(w / z);
+    h = Math.round(h / z);
+  }
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;

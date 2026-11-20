@@ -121,13 +121,27 @@
 
 .viewport {
   position: relative;
-  container-type: inline-size;
-  /* 3:4 like the captured photo, as large as the free area allows */
-  width: min(100cqw, 75cqh);
-  aspect-ratio: 3 / 4;
+  /* full camera: fills all the free space; .guide marks the captured photo */
+  container-type: size;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   border-radius: 6px;
   background: #000;
+}
+
+/* the photo area: a centred box shaped like the frame window, the rest dimmed */
+.guide {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-height: 94cqh;
+  border: 1.5px solid rgba(251, 235, 217, 0.9);
+  border-radius: 4px;
+  box-shadow: 0 0 0 100vmax rgba(10, 2, 3, 0.55);
+  pointer-events: none;
 }
 
 .video {

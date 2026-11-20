@@ -107,6 +107,7 @@ export default function CameraScreen({
   const [shotFx, setShotFx] = useState(0);
   const audioRef = useRef<AudioContext | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const guideRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(0); // set after mount: keeps server and client HTML identical
 
@@ -199,7 +200,16 @@ export default function CameraScreen({
       setScreenFlash(true);
       await sleep(280);
     }
-    const snap = takeSnapshot(video, facing === "user", digitalZoom, poseAspect);
+    // capture exactly what the guide shows: the preview is object-fit: cover
+    // (scaled by the digital zoom), the guide a centred box of the pose's shape
+    const vp = viewportRef.current;
+    const guide = guideRef.current;
+    let crop: { w: number; h: number } | undefined;
+    if (vp && guide && vp.offsetWidth && guide.offsetWidth) {
+      const scale = Math.max(vp.offsetWidth / video.videoWidth, vp.offsetHeight / video.videoHeight) * digitalZoom;
+      crop = { w: guide.offsetWidth / scale, h: guide.offsetHeight / scale };
+    }
+    const snap = takeSnapshot(video, facing === "user", digitalZoom, poseAspect, crop);
     if (useTorch && track) track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => undefined);
     setScreenFlash(false);
     // shutter: blink + click sound + short buzz (Android; iOS has no web vibration)
@@ -262,12 +272,7 @@ export default function CameraScreen({
       </header>
 
       <div className={styles.viewArea}>
-        <div
-          ref={viewportRef}
-          className={styles.viewport}
-          // preview has the exact shape of the frame window this pose fills
-          style={{ width: `min(100cqw, ${(100 * poseAspect).toFixed(2)}cqh)`, aspectRatio: String(poseAspect) }}
-        >
+        <div ref={viewportRef} className={styles.viewport}>
           <video
             ref={videoRef}
             autoPlay
@@ -277,6 +282,14 @@ export default function CameraScreen({
             style={{ ...filterStyle(filter), transform: `${mirror}scale(${digitalZoom})` }}
           />
           <FilterOverlay filter={filter} />
+          {/* full-screen preview; the bright box is the photo, shaped like this pose's frame window */}
+          {state === "on" && (
+            <div
+              ref={guideRef}
+              className={styles.guide}
+              style={{ width: `min(94cqw, ${(94 * poseAspect).toFixed(2)}cqh)`, aspectRatio: String(poseAspect) }}
+            />
+          )}
 
           {state !== "on" && (
             <div className={styles.placeholder}>
