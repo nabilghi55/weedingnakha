@@ -120,8 +120,8 @@ func applyEventInput(e *store.Event, in eventInput) (map[string]map[string]strin
 	if in.StartAt == nil || in.EndAt == nil {
 		return bad("SCHEDULE_REQUIRED", "Jadwal mulai dan selesai wajib diisi.")
 	}
-	if !in.EndAt.After(*in.StartAt) || in.EndAt.Sub(*in.StartAt) > 72*time.Hour {
-		return bad("BAD_SCHEDULE", "Jam selesai harus setelah jam mulai (maksimal 3 hari).")
+	if !in.EndAt.After(*in.StartAt) || in.EndAt.Sub(*in.StartAt) > 5*24*time.Hour {
+		return bad("BAD_SCHEDULE", "Jam selesai harus setelah jam mulai (maksimal 5 hari).")
 	}
 	status := store.EventStatus(in.Status)
 	if in.Status == "" {
