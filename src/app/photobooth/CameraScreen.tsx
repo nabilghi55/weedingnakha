@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, CameraOff, Images, RefreshCw, SwitchCamera, Timer, TimerOff, Zap, ZapOff } from "lucide-react";
+import { ArrowLeft, CameraOff, Check, Images, RefreshCw, SwitchCamera, Timer, TimerOff, Zap, ZapOff } from "lucide-react";
 import { FilterOverlay, filterStyle } from "@/components/FilterPicker";
 import type { FilterId, GuestSession, WeddingEvent } from "@/lib/api";
 import { FILTER_GROUPS, filtersInGroup } from "@/lib/filters";
@@ -44,8 +44,10 @@ function readTimer(): number {
 
 /**
  * Full-screen camera for one photobooth session: the guest presses the shutter
- * for each pose (optional self-timer, then the shot), a mini 2×2 grid shows the
- * collage filling up. Square viewfinder = exactly what lands in the collage.
+ * for each pose (optional self-timer, then the shot), a mini grid shows the
+ * collage filling up. The whole preview is captured; the guest places each
+ * pose in its frame window afterwards. In moment mode the guest takes up to
+ * `rollSize` loose photos and may finish early.
  */
 export default function CameraScreen({
   event,
@@ -59,6 +61,8 @@ export default function CameraScreen({
   thumbs,
   onCapture,
   onCancel,
+  moment = false,
+  onDone,
 }: {
   event: WeddingEvent;
   session: GuestSession | null;
@@ -75,8 +79,12 @@ export default function CameraScreen({
   onCapture: (snapshot: HTMLCanvasElement) => void;
   /** leave a retake without shooting (back to the result) */
   onCancel?: () => void;
+  /** loose moment photos instead of collage poses */
+  moment?: boolean;
+  /** moment mode: finish before the roll is full */
+  onDone?: () => void;
 }) {
-  // shape of the frame window the next (or retaken) pose fills
+  // shape of the frame window the next (or retaken) pose fills (only the fallback crop uses it)
   const poseAspect = aspects?.[retakeIndex ?? shotCount] ?? 1;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -107,7 +115,6 @@ export default function CameraScreen({
   const [shotFx, setShotFx] = useState(0);
   const audioRef = useRef<AudioContext | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const guideRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(0); // set after mount: keeps server and client HTML identical
 
@@ -200,14 +207,13 @@ export default function CameraScreen({
       setScreenFlash(true);
       await sleep(280);
     }
-    // capture exactly what the guide shows: the preview is object-fit: cover
-    // (scaled by the digital zoom), the guide a centred box of the pose's shape
+    // capture exactly what the full-screen preview shows: object-fit: cover,
+    // scaled by the digital zoom (each pose is placed in its window afterwards)
     const vp = viewportRef.current;
-    const guide = guideRef.current;
     let crop: { w: number; h: number } | undefined;
-    if (vp && guide && vp.offsetWidth && guide.offsetWidth) {
+    if (vp && vp.offsetWidth && vp.offsetHeight) {
       const scale = Math.max(vp.offsetWidth / video.videoWidth, vp.offsetHeight / video.videoHeight) * digitalZoom;
-      crop = { w: guide.offsetWidth / scale, h: guide.offsetHeight / scale };
+      crop = { w: vp.offsetWidth / scale, h: vp.offsetHeight / scale };
     }
     const snap = takeSnapshot(video, facing === "user", digitalZoom, poseAspect, crop);
     if (useTorch && track) track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => undefined);
@@ -282,14 +288,6 @@ export default function CameraScreen({
             style={{ ...filterStyle(filter), transform: `${mirror}scale(${digitalZoom})` }}
           />
           <FilterOverlay filter={filter} />
-          {/* full-screen preview; the bright box is the photo, shaped like this pose's frame window */}
-          {state === "on" && (
-            <div
-              ref={guideRef}
-              className={styles.guide}
-              style={{ width: `min(94cqw, ${(94 * poseAspect).toFixed(2)}cqh)`, aspectRatio: String(poseAspect) }}
-            />
-          )}
 
           {state !== "on" && (
             <div className={styles.placeholder}>
@@ -395,6 +393,14 @@ export default function CameraScreen({
       <p className={styles.poseHint} aria-live="polite">
         {busy
           ? "Siap… bergaya!"
+          : moment
+            ? retakeIndex !== null
+              ? `Ulang foto ${retakeIndex + 1}`
+              : shotCount === 0
+                ? `Jepret sampai ${rollSize} foto, lalu tekan Selesai`
+                : shotCount >= rollSize
+                  ? "Sudah penuh"
+                  : `${shotCount} foto · jepret lagi atau tekan Selesai`
           : retakeIndex !== null
             ? `Ulang pose ${retakeIndex + 1} — tekan tombol, lalu bergaya`
             : shotCount === 0
@@ -403,6 +409,12 @@ export default function CameraScreen({
       </p>
 
       <footer className={styles.bottom}>
+        {moment ? (
+          <div className={styles.momentStack} aria-label={`${shotCount} dari ${rollSize} foto`}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {thumbs.length > 0 ? <img src={thumbs[retakeIndex ?? thumbs.length - 1]} alt="" /> : <small>0</small>}
+          </div>
+        ) : (
         <div className={styles.miniGrid} aria-label={`${shotCount} dari ${rollSize} pose`}>
           {Array.from({ length: rollSize }, (_, i) => (
             <span key={i} className={i === (retakeIndex ?? shotCount) ? styles.miniNext : ""}>
@@ -411,13 +423,31 @@ export default function CameraScreen({
             </span>
           ))}
         </div>
-        <button className={styles.shutter} onClick={capture} disabled={state !== "on" || busy} aria-label={`Ambil pose ${(retakeIndex ?? shotCount) + 1}`}>
+        )}
+        <button
+          className={styles.shutter}
+          onClick={capture}
+          disabled={state !== "on" || busy || (retakeIndex === null && shotCount >= rollSize)}
+          aria-label={`Ambil ${moment ? "foto" : "pose"} ${(retakeIndex ?? shotCount) + 1}`}
+        >
           <span />
         </button>
-        {retakeIndex !== null && onCancel ? (
+        {moment && retakeIndex === null ? (
+          <button className={`${styles.poseCount} ${shotCount > 0 ? styles.doneBtn : ""}`} onClick={onDone} disabled={busy || shotCount === 0}>
+            <strong>
+              {shotCount}
+              <small>/{rollSize}</small>
+            </strong>
+            <small>{shotCount > 0 ? (
+              <>
+                <Check /> Selesai
+              </>
+            ) : "Foto"}</small>
+          </button>
+        ) : retakeIndex !== null && onCancel ? (
           <button className={styles.poseCount} onClick={onCancel} disabled={busy}>
             <strong>Batal</strong>
-            <small>Ulang pose</small>
+            <small>Ulang {moment ? "foto" : "pose"}</small>
           </button>
         ) : (
           <div className={styles.poseCount}>

@@ -30,29 +30,31 @@ type publicEvent struct {
 	// Scope tells the site how this event was chosen: "slug" (link/QR),
 	// "guest" (checked-in guest) or "default" (no context — the site then
 	// shows only the studio brand, not this couple's names or theme).
-	Scope             string     `json:"scope,omitempty"`
-	Slug              string     `json:"slug"`
-	Type              string     `json:"type"`
-	Title             string     `json:"title"`
-	GroomName         string     `json:"groomName"`
-	BrideName         string     `json:"brideName"`
-	GroomParent       string     `json:"groomParent"`
-	BrideParent       string     `json:"brideParent"`
-	EventDate         string     `json:"eventDate"`
-	EventTime         string     `json:"eventTime"`
-	EndTime           string     `json:"endTime"`
-	Venue             string     `json:"venue"`
-	VenueAddress      string     `json:"venueAddress"`
-	MapsURL           string     `json:"mapsUrl"`
-	Hashtag           string     `json:"hashtag"`
-	Theme             string     `json:"theme"`
-	CoverURL          string     `json:"coverUrl"`
-	FrameURL          string     `json:"frameUrl"` // first frame (older clients)
-	Frames            []frameRef `json:"frames"`
-	Status            string     `json:"status"`
-	PhotoboothOpen    bool       `json:"photoboothOpen"`
-	GalleryVisibility string     `json:"galleryVisibility"`
-	MaxPhotosPerGuest int        `json:"maxPhotosPerGuest"`
+	Scope              string     `json:"scope,omitempty"`
+	Slug               string     `json:"slug"`
+	Type               string     `json:"type"`
+	Title              string     `json:"title"`
+	GroomName          string     `json:"groomName"`
+	BrideName          string     `json:"brideName"`
+	GroomParent        string     `json:"groomParent"`
+	BrideParent        string     `json:"brideParent"`
+	EventDate          string     `json:"eventDate"`
+	EventTime          string     `json:"eventTime"`
+	EndTime            string     `json:"endTime"`
+	Venue              string     `json:"venue"`
+	VenueAddress       string     `json:"venueAddress"`
+	MapsURL            string     `json:"mapsUrl"`
+	Hashtag            string     `json:"hashtag"`
+	DefaultWishes      string     `json:"defaultWishes"` // what an empty wish becomes
+	Theme              string     `json:"theme"`
+	CoverURL           string     `json:"coverUrl"`
+	FrameURL           string     `json:"frameUrl"` // first frame (older clients)
+	Frames             []frameRef `json:"frames"`
+	Status             string     `json:"status"`
+	PhotoboothOpen     bool       `json:"photoboothOpen"`
+	GalleryVisibility  string     `json:"galleryVisibility"`
+	MaxPhotosPerGuest  int        `json:"maxPhotosPerGuest"`
+	MaxMomentsPerGuest int        `json:"maxMomentsPerGuest"`
 }
 
 func (s *Server) publicView(ev store.Event) publicEvent {
@@ -76,10 +78,12 @@ func (s *Server) publicView(ev store.Event) publicEvent {
 		EventDate: start.Format("2006-01-02"), EventTime: start.Format("15:04"),
 		EndTime: ev.EndAt.In(store.EventLocation).Format("15:04"),
 		Venue:   ev.Venue, VenueAddress: ev.VenueAddr, MapsURL: ev.MapsURL, Hashtag: ev.Hashtag,
-		Theme: ev.Theme, CoverURL: cover, FrameURL: frame, Frames: frames, Status: string(ev.Status),
-		PhotoboothOpen:    s.booth(ev).Open,
-		GalleryVisibility: string(ev.GalleryVisibility),
-		MaxPhotosPerGuest: store.MaxPhotosPerGuest,
+		DefaultWishes: defaultWishes(ev),
+		Theme:         ev.Theme, CoverURL: cover, FrameURL: frame, Frames: frames, Status: string(ev.Status),
+		PhotoboothOpen:     s.booth(ev).Open,
+		GalleryVisibility:  string(ev.GalleryVisibility),
+		MaxPhotosPerGuest:  store.MaxPhotosPerGuest,
+		MaxMomentsPerGuest: store.MaxMomentsPerGuest,
 	}
 }
 

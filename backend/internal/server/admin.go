@@ -74,6 +74,7 @@ type eventInput struct {
 	VenueAddr   string     `json:"venueAddress"`
 	MapsURL     string     `json:"mapsUrl"`
 	Hashtag     string     `json:"hashtag"`
+	Wishes      *string    `json:"defaultWishes"` // nil keeps the current text
 	Theme       string     `json:"theme"`
 	StartAt     *time.Time `json:"startAt"`
 	EndAt       *time.Time `json:"endAt"`
@@ -153,6 +154,9 @@ func applyEventInput(e *store.Event, in eventInput) (map[string]map[string]strin
 	e.GroomParent, e.BrideParent = clean(in.GroomParent, 120), clean(in.BrideParent, 120)
 	e.Venue, e.VenueAddr = clean(in.Venue, 120), clean(in.VenueAddr, 200)
 	e.MapsURL, e.Hashtag, e.Theme = in.MapsURL, clean(in.Hashtag, 40), in.Theme
+	if in.Wishes != nil {
+		e.Wishes = clean(*in.Wishes, 120)
+	}
 	e.StartAt, e.EndAt = in.StartAt.UTC(), in.EndAt.UTC()
 	return changes, nil
 }

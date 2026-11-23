@@ -121,27 +121,13 @@
 
 .viewport {
   position: relative;
-  /* full camera: fills all the free space; .guide marks the captured photo */
+  /* full camera: fills all the free space; everything shown is captured */
   container-type: size;
   width: 100%;
   height: 100%;
   overflow: hidden;
   border-radius: 6px;
   background: #000;
-}
-
-/* the photo area: a centred box shaped like the frame window, the rest dimmed */
-.guide {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  max-height: 94cqh;
-  border: 1.5px solid rgba(251, 235, 217, 0.9);
-  border-radius: 4px;
-  box-shadow: 0 0 0 100vmax rgba(10, 2, 3, 0.55);
-  pointer-events: none;
 }
 
 .video {
@@ -569,4 +555,46 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: rgba(251, 235, 217, 0.55);
+}
+
+/* moment mode: the last photo taken, like a camera roll */
+.momentStack {
+  justify-self: start;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 235, 217, 0.22);
+  background: rgba(251, 235, 217, 0.08);
+}
+
+.momentStack img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.momentStack small {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(251, 235, 217, 0.5);
+}
+
+.doneBtn {
+  background: var(--cam-fg);
+  color: #1c0507;
+  border-color: transparent;
+}
+
+.doneBtn small,
+.doneBtn strong small {
+  color: inherit;
+}
+
+.doneBtn svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
 }

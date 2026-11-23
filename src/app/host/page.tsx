@@ -288,7 +288,7 @@ function Overview({
         </div>
         <p className="muted">
           {ev.booth.open
-            ? `Tamu dapat check-in dan mengirim hingga ${ev.maxPhotosPerGuest} foto per perangkat.`
+            ? `Tamu dapat check-in dan mengirim hingga ${ev.maxPhotosPerGuest} kolase photobooth${ev.maxMomentsPerGuest ? ` dan ${ev.maxMomentsPerGuest} foto momen` : ""} per perangkat.`
             : ev.booth.message}
         </p>
         <p className="hint">

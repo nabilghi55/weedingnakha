@@ -20,6 +20,7 @@ type privateEvent struct {
 	RadiusMeters   int        `json:"radiusMeters"`
 	ModerationMode string     `json:"moderationMode"`
 	Booth          boothState `json:"booth"`
+	CustomWishes   string     `json:"customWishes"` // organiser's own default wish ("" = built-in greeting)
 }
 
 func (s *Server) privateView(ev store.Event) privateEvent {
@@ -31,6 +32,7 @@ func (s *Server) privateView(ev store.Event) privateEvent {
 		RadiusMeters:   ev.RadiusMeters,
 		ModerationMode: string(ev.ModerationMode),
 		Booth:          s.booth(ev),
+		CustomWishes:   ev.Wishes,
 	}
 	if ev.LocationSet {
 		lat, lng := ev.VenueLat, ev.VenueLng

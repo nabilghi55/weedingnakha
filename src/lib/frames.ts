@@ -243,12 +243,37 @@ function aligned(
 
 type Source = CanvasImageSource & { width: number; height: number };
 
-/** Draws `src` filling the destination rect (centre crop, like object-fit: cover). */
-function drawCover(ctx: CanvasRenderingContext2D, src: Source, filter: FilterId, dx: number, dy: number, dw: number, dh: number) {
-  const scale = Math.max(dw / src.width, dh / src.height);
+/**
+ * How the guest placed a photo inside its window: `zoom` ≥ 1 on top of the
+ * cover fit, `x`/`y` in -1…1 across the free room (0 = centred, 1 = the photo's
+ * left/top edge at the window's left/top).
+ */
+export type Adjust = { zoom: number; x: number; y: number };
+export const NO_ADJUST: Adjust = { zoom: 1, x: 0, y: 0 };
+export const MAX_ADJUST_ZOOM = 4;
+
+/** The source rect of `src` that fills a dw×dh window with adjustment `adj`. */
+export function coverRect(src: { width: number; height: number }, dw: number, dh: number, adj: Adjust = NO_ADJUST) {
+  const scale = Math.max(dw / src.width, dh / src.height) * Math.max(1, adj.zoom);
   const cw = dw / scale;
   const ch = dh / scale;
-  drawFiltered(ctx, src, filter, (src.width - cw) / 2, (src.height - ch) / 2, cw, ch, dx, dy, dw, dh);
+  const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+  return { sx: ((src.width - cw) / 2) * (1 - clamp(adj.x)), sy: ((src.height - ch) / 2) * (1 - clamp(adj.y)), cw, ch };
+}
+
+/** Draws `src` filling the destination rect (centre crop like object-fit: cover, moved/zoomed by `adj`). */
+function drawCover(ctx: CanvasRenderingContext2D, src: Source, filter: FilterId, dx: number, dy: number, dw: number, dh: number, adj?: Adjust) {
+  const { sx, sy, cw, ch } = coverRect(src, dw, dh, adj);
+  drawFiltered(ctx, src, filter, sx, sy, cw, ch, dx, dy, dw, dh);
+}
+
+/** One pose alone, cropped to its window shape (preview while adjusting, moment thumbnails). */
+export function renderPose(src: Source, aspect: number, width: number, filter: FilterId = "none", adj?: Adjust) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width);
+  canvas.height = Math.round(width / aspect);
+  drawCover(canvas.getContext("2d")!, src, filter, 0, 0, canvas.width, canvas.height, adj);
+  return canvas;
 }
 
 /** Just the photo (portrait 3:4, 1080×1440 — fits Instagram) with a small studio credit. */
@@ -274,14 +299,14 @@ function renderCustom(snapshot: Source, filter: FilterId, credit: boolean) {
   return canvas;
 }
 
-function renderPlain(snapshot: Source, filter: FilterId, credit: boolean) {
+function renderPlain(snapshot: Source, filter: FilterId, credit: boolean, adj?: Adjust) {
   const SW = 1080;
   const SH = 1440;
   const canvas = document.createElement("canvas");
   canvas.width = SW;
   canvas.height = SH;
   const ctx = canvas.getContext("2d")!;
-  drawCover(ctx, snapshot, filter, 0, 0, SW, SH);
+  drawCover(ctx, snapshot, filter, 0, 0, SW, SH, adj);
   if (credit) {
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.45)";
@@ -393,11 +418,11 @@ export function renderFrame(
   frame: FrameId,
   filter: FilterId,
   ev: WeddingEvent,
-  { credit = true }: { credit?: boolean } = {},
+  { credit = true, adjust }: { credit?: boolean; adjust?: Adjust } = {},
 ) {
   if (frame === "custom") return renderCustom(snapshot, filter, credit);
   if (frame === "koran") return renderKoran(snapshot, filter, ev, credit);
-  if (frame === "plain") return renderPlain(snapshot, filter, credit);
+  if (frame === "plain") return renderPlain(snapshot, filter, credit, adjust);
   const bottom = frame === "film" ? 230 : 250;
   const top = frame === "film" ? 90 : PAD;
   const H = top + PHOTO + bottom;
@@ -549,10 +574,10 @@ export function renderCollage(
   /** one filter for every pose, or one per pose (index = pose) */
   filter: FilterId | readonly FilterId[],
   ev: WeddingEvent,
-  { credit = true }: { credit?: boolean } = {},
+  { credit = true, adjusts = [] }: { credit?: boolean; /** placement per pose (index = pose) */ adjusts?: readonly (Adjust | undefined)[] } = {},
 ) {
   // the organiser's frame (with photo windows) replaces the built-in layout
-  if (custom?.holes.length) return renderFrameCollage(shots, filter);
+  if (custom?.holes.length) return renderFrameCollage(shots, filter, adjusts);
   const filterAt = (i: number) => poseFilter(filter, i);
   const CW = STORY_W;
   const CH = STORY_H;
@@ -601,7 +626,7 @@ export function renderCollage(
     const y = top + Math.floor(i / 2) * (chh + GAP);
     const shot = shots[i];
     if (shot) {
-      drawCover(ctx, shot, filterAt(i), x, y, cw, chh);
+      drawCover(ctx, shot, filterAt(i), x, y, cw, chh, adjusts[i]);
     } else {
       ctx.fillStyle = "rgba(91,34,38,0.08)";
       ctx.fillRect(x, y, cw, chh);
@@ -632,7 +657,7 @@ export function renderCollage(
  * (slightly oversized so no gap shows at the frame's edges), then the PNG is
  * laid on top. Output is always an Instagram Story (1080×1920).
  */
-function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId | readonly FilterId[]) {
+function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId | readonly FilterId[], adjusts: readonly (Adjust | undefined)[]) {
   const { img, holes } = custom!;
   const CW = STORY_W;
   const CH = STORY_H;
@@ -657,7 +682,7 @@ function renderFrameCollage(shots: (Source | null | undefined)[], filter: Filter
     const h = hole.h * k + bleed * 2;
     const shot = shots[i];
     if (shot) {
-      drawCover(ctx, shot, poseFilter(filter, i), x, y, w, h);
+      drawCover(ctx, shot, poseFilter(filter, i), x, y, w, h, adjusts[i]);
     } else {
       ctx.fillStyle = "rgba(28,5,7,0.08)";
       ctx.fillRect(x, y, w, h);

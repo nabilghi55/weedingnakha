@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -204,17 +205,17 @@ type guestSessionView struct {
 	UploadedCount      int         `json:"uploadedCount"`
 	ReservedCount      int         `json:"reservedCount"`
 	MaxPhotos          int         `json:"maxPhotos"`
-	Remaining          int         `json:"remaining"`
+	Remaining          int         `json:"remaining"` // photobooth collages left
+	MaxMoments         int         `json:"maxMoments"`
+	MomentsRemaining   int         `json:"momentsRemaining"`
 	LocationValidUntil time.Time   `json:"locationValidUntil"`
 	LocationRequired   bool        `json:"locationRequired"`
 	ExpiresAt          time.Time   `json:"expiresAt"`
 }
 
 func (s *Server) guestView(gs store.GuestSession, ev store.Event) guestSessionView {
-	rem := store.MaxPhotosPerGuest - gs.UploadedCount - gs.ReservedCount
-	if rem < 0 {
-		rem = 0
-	}
+	rem := max(0, store.MaxPhotosPerGuest-gs.UploadedCount-gs.ReservedCount)
+	momRem := max(0, store.MaxMomentsPerGuest-gs.MomentsUploaded-gs.MomentsReserved)
 	locValid := gs.LastLocationCheckAt.Add(s.cfg.LocationMaxAge)
 	if s.cfg.GeofenceOff {
 		locValid = gs.ExpiresAt
@@ -226,6 +227,8 @@ func (s *Server) guestView(gs store.GuestSession, ev store.Event) guestSessionVi
 		ReservedCount:      gs.ReservedCount,
 		MaxPhotos:          store.MaxPhotosPerGuest,
 		Remaining:          rem,
+		MaxMoments:         store.MaxMomentsPerGuest,
+		MomentsRemaining:   momRem,
 		LocationValidUntil: locValid,
 		LocationRequired:   !s.cfg.GeofenceOff,
 		ExpiresAt:          gs.ExpiresAt,
@@ -321,7 +324,7 @@ func (s *Server) uploadAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if wishes == "" {
-		wishes = "Selamat menempuh hidup baru!"
+		wishes = defaultWishes(ev)
 	}
 	filter := in.Filter
 	if !store.Filters[filter] {
@@ -350,12 +353,16 @@ func (s *Server) uploadAuthorize(w http.ResponseWriter, r *http.Request) {
 		Wishes:      wishes,
 		Filter:      filter,
 		Source:      photoSource(in.Mode),
-	}, s.cfg.ReservationTTL, store.MaxPhotosPerGuest)
+	}, s.cfg.ReservationTTL, store.QuotaFor(photoSource(in.Mode)))
 	for _, x := range expired {
 		_ = s.storage.Delete(r.Context(), x.ObjectKey)
 	}
 	if errors.Is(err, store.ErrQuotaExceeded) {
-		writeErr(w, http.StatusConflict, "QUOTA_EXCEEDED", "Batas 5 foto per perangkat sudah tercapai. Terima kasih sudah berbagi momen!")
+		msg := fmt.Sprintf("Batas %d kolase photobooth per perangkat sudah tercapai. Terima kasih sudah ikut meramaikan!", store.MaxPhotosPerGuest)
+		if photoSource(in.Mode) == store.SourceMoment {
+			msg = fmt.Sprintf("Batas %d foto momen per perangkat sudah tercapai. Terima kasih sudah berbagi momen!", store.MaxMomentsPerGuest)
+		}
+		writeErr(w, http.StatusConflict, "QUOTA_EXCEEDED", msg)
 		return
 	}
 	if err != nil {
@@ -501,4 +508,16 @@ func photoSource(mode string) string {
 		return "moment"
 	}
 	return "photobooth"
+}
+
+// defaultWishes fills an empty wish: the organiser's own text, else a
+// greeting that fits the event type.
+func defaultWishes(ev store.Event) string {
+	if ev.Wishes != "" {
+		return ev.Wishes
+	}
+	if ev.Kind() == store.TypeWedding {
+		return "Selamat menempuh hidup baru!"
+	}
+	return "Seru banget acaranya!"
 }

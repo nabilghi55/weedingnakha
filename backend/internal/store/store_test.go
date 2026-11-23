@@ -154,6 +154,47 @@ func TestReserveUploadQuotaConcurrent(t *testing.T) {
 	}
 }
 
+// Moments have their own quota: a full photobooth quota does not block them,
+// and releasing a moment frees a moment slot.
+func TestMomentQuotaIsSeparate(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	ev, _ := s.CreateEvent(Event{ID: NewEventID(), Slug: "x"})
+	gs, _ := s.CheckinGuest(ev.ID, "dev", "tok", time.Now().Add(time.Hour), 1, 1)
+	reserve := func(source string) (Reservation, error) {
+		r, _, _, err := s.ReserveUpload(ev.ID, gs.ID, Reservation{ID: NewID(), ObjectKey: "k", Source: source}, time.Minute, QuotaFor(source))
+		return r, err
+	}
+	for i := 0; i < MaxPhotosPerGuest; i++ {
+		if _, err := reserve("photobooth"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := reserve("photobooth"); err != ErrQuotaExceeded {
+		t.Fatalf("photobooth over quota: %v", err)
+	}
+	var last Reservation
+	for i := 0; i < MaxMomentsPerGuest; i++ {
+		r, err := reserve(SourceMoment)
+		if err != nil {
+			t.Fatalf("moment %d: %v", i, err)
+		}
+		last = r
+	}
+	if _, err := reserve(SourceMoment); err != ErrQuotaExceeded {
+		t.Fatalf("moment over quota: %v", err)
+	}
+	if _, err := s.ReleaseReservation(ev.ID, last.ID, gs.ID); err != nil {
+		t.Fatal(err)
+	}
+	g, _ := s.GuestSession(ev.ID, gs.ID)
+	if g.MomentsReserved != MaxMomentsPerGuest-1 || g.ReservedCount != MaxPhotosPerGuest {
+		t.Fatalf("counters after release: moments %d, booth %d", g.MomentsReserved, g.ReservedCount)
+	}
+	if _, err := reserve(SourceMoment); err != nil {
+		t.Fatalf("moment after release: %v", err)
+	}
+}
+
 func TestUpdateEventDoesNotLoseConcurrentChanges(t *testing.T) {
 	s, _ := Open(t.TempDir(), nil)
 	ev, _ := s.CreateEvent(Event{ID: NewEventID(), Slug: "x"})

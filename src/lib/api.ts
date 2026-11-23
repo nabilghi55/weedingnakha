@@ -85,6 +85,10 @@ export interface WeddingEvent {
   photoboothOpen: boolean;
   galleryVisibility: GalleryVisibility;
   maxPhotosPerGuest: number;
+  /** moment photos per device (a separate quota); older servers omit it */
+  maxMomentsPerGuest?: number;
+  /** what an empty guest wish becomes (the organiser's text or a built-in greeting) */
+  defaultWishes?: string;
 }
 
 export interface BoothState {
@@ -105,6 +109,8 @@ export interface PrivateEvent extends WeddingEvent {
   radiusMeters: number;
   moderationMode: ModerationMode;
   booth: BoothState;
+  /** the organiser's own default wish, "" = built-in greeting */
+  customWishes?: string;
 }
 
 export interface AdminEvent extends PrivateEvent {
@@ -162,7 +168,11 @@ export interface GuestSession {
   uploadedCount: number;
   reservedCount: number;
   maxPhotos: number;
+  /** photobooth collages left on this device */
   remaining: number;
+  maxMoments?: number;
+  /** moment photos left on this device (separate quota) */
+  momentsRemaining?: number;
   locationValidUntil: string;
   /** false when the deployment has location checks switched off */
   locationRequired?: boolean;
@@ -216,6 +226,7 @@ export interface EventInput {
   venueAddress: string;
   mapsUrl: string;
   hashtag: string;
+  defaultWishes?: string;
   theme: ThemeId;
   startAt: string;
   endAt: string;

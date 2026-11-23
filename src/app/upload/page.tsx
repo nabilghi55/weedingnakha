@@ -15,7 +15,7 @@ export default function UploadInfoPage() {
   const { event, eventScoped } = useApp();
   const steps = [
     { icon: QrCode, text: "Scan QR photobooth yang tampil di lokasi acara." },
-    { icon: Camera, text: `Ambil foto langsung dari kamera, pilih bingkai & filter, lalu kirim (maks. ${event.maxPhotosPerGuest} foto).` },
+    { icon: Camera, text: `Ambil foto langsung dari kamera, pilih bingkai & filter, lalu kirim (maks. ${event.maxPhotosPerGuest} kolase photobooth${event.maxMomentsPerGuest ? ` + ${event.maxMomentsPerGuest} foto momen` : ""} per HP).` },
   ];
 
   return (

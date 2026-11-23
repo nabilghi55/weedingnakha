@@ -156,8 +156,20 @@ var Filters = map[string]bool{
 
 const (
 	DefaultRadiusMeters = 150
-	MaxPhotosPerGuest   = 5
+	MaxPhotosPerGuest   = 5  // photobooth collages per device
+	MaxMomentsPerGuest  = 10 // moment photos per device (a separate quota)
 )
+
+// SourceMoment marks a plain moment photo; anything else is a photobooth collage.
+const SourceMoment = "moment"
+
+// QuotaFor is the per-device limit of the given upload source.
+func QuotaFor(source string) int {
+	if source == SourceMoment {
+		return MaxMomentsPerGuest
+	}
+	return MaxPhotosPerGuest
+}
 
 // ---------- Records ----------
 
@@ -177,6 +189,7 @@ type Event struct {
 	VenueAddr   string   `json:"venueAddress"`
 	MapsURL     string   `json:"mapsUrl"`
 	Hashtag     string   `json:"hashtag"`
+	Wishes      string   `json:"defaultWishes,omitempty"` // used when a guest leaves the wish empty
 	Theme       string   `json:"theme"`
 	CoverKey    string   `json:"coverKey,omitempty"`
 	FrameKey    string   `json:"frameKey,omitempty"`  // legacy single frame; read through Frames()
@@ -212,8 +225,10 @@ type GuestSession struct {
 	EventID             string     `json:"eventId"`
 	DeviceIDHash        string     `json:"deviceIdHash"`
 	SessionTokenHash    string     `json:"sessionTokenHash"`
-	UploadedCount       int        `json:"uploadedCount"`
+	UploadedCount       int        `json:"uploadedCount"` // photobooth collages
 	ReservedCount       int        `json:"reservedCount"`
+	MomentsUploaded     int        `json:"momentsUploaded,omitempty"`
+	MomentsReserved     int        `json:"momentsReserved,omitempty"`
 	CheckedInAt         time.Time  `json:"checkedInAt"`
 	LastLocationCheckAt time.Time  `json:"lastLocationCheckAt"`
 	LastDistanceMeters  int        `json:"lastDistanceMeters"` // rounded; raw coordinates are never stored
@@ -932,19 +947,29 @@ func (s *Store) TouchGuestLocation(eventID, id string, distM, accM int) (GuestSe
 
 // ---------- Upload reservations (quota) ----------
 
+// counters returns the uploaded/reserved counters of the quota `source` uses.
+func (g *GuestSession) counters(source string) (uploaded, reserved *int) {
+	if source == SourceMoment {
+		return &g.MomentsUploaded, &g.MomentsReserved
+	}
+	return &g.UploadedCount, &g.ReservedCount
+}
+
 func releaseLocked(d *eventData, r *Reservation, now time.Time) {
 	if r.Status != ResPending {
 		return
 	}
 	r.Status = ResReleased
 	r.ClosedAt = &now
-	if g := findGuest(d, r.GuestSessionID); g != nil && g.ReservedCount > 0 {
-		g.ReservedCount--
+	if g := findGuest(d, r.GuestSessionID); g != nil {
+		if _, reserved := g.counters(r.Source); *reserved > 0 {
+			*reserved--
+		}
 	}
 }
 
 // ReserveUpload atomically and durably grants one upload slot if
-// uploaded_count + reserved_count < max. The reservation is on disk (fsynced)
+// uploaded + reserved < max, counted on the quota of r.Source. The reservation is on disk (fsynced)
 // before this returns, i.e. before any presigned URL can be issued.
 // Expired reservations of the same session are released first.
 func (s *Store) ReserveUpload(eventID, sessionID string, r Reservation, ttl time.Duration, max int) (Reservation, GuestSession, []Reservation, error) {
@@ -966,7 +991,8 @@ func (s *Store) ReserveUpload(eventID, sessionID string, r Reservation, ttl time
 				expired = append(expired, *res)
 			}
 		}
-		if g.UploadedCount+g.ReservedCount >= max {
+		uploaded, reserved := g.counters(r.Source)
+		if *uploaded+*reserved >= max {
 			if len(expired) > 0 {
 				return commitErr{ErrQuotaExceeded}
 			}
@@ -979,7 +1005,7 @@ func (s *Store) ReserveUpload(eventID, sessionID string, r Reservation, ttl time
 		r.ExpiresAt = now.Add(ttl)
 		res := r
 		d.Reservations = append(d.Reservations, &res)
-		g.ReservedCount++
+		*reserved++
 		out, gsOut = res, *g
 		return nil
 	})
@@ -1039,10 +1065,11 @@ func (s *Store) ConfirmUpload(eventID, resID, sessionID string, p Photo) (Photo,
 		}
 		r.Status = ResConfirmed
 		r.ClosedAt = &now
-		if g.ReservedCount > 0 {
-			g.ReservedCount--
+		uploaded, reserved := g.counters(r.Source)
+		if *reserved > 0 {
+			*reserved--
 		}
-		g.UploadedCount++
+		*uploaded++
 
 		p.EventID = eventID
 		p.GuestSessionID = g.ID
@@ -1250,8 +1277,10 @@ func (s *Store) FailPhoto(eventID, id string) (Photo, error) {
 		}
 		if p.Status != PhotoFailed {
 			p.Status = PhotoFailed
-			if g := findGuest(d, p.GuestSessionID); g != nil && g.UploadedCount > 0 {
-				g.UploadedCount--
+			if g := findGuest(d, p.GuestSessionID); g != nil {
+				if uploaded, _ := g.counters(p.Source); *uploaded > 0 {
+					*uploaded--
+				}
 			}
 		}
 		out = *p
@@ -1338,7 +1367,7 @@ func (s *Store) Stats(eventID string) Stats {
 		}
 		for _, g := range d.GuestSessions {
 			st.TotalGuests++
-			if g.UploadedCount > 0 {
+			if g.UploadedCount+g.MomentsUploaded > 0 {
 				st.GuestsUploaded++
 			}
 		}

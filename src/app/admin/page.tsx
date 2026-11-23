@@ -402,6 +402,7 @@ interface FormState {
   venueAddress: string;
   mapsUrl: string;
   hashtag: string;
+  defaultWishes: string;
   theme: AdminEvent["theme"];
   start: string; // datetime-local
   end: string;
@@ -430,6 +431,7 @@ function formFrom(ev?: AdminEvent): FormState {
     venueAddress: ev?.venueAddress ?? "",
     mapsUrl: ev?.mapsUrl ?? "",
     hashtag: ev?.hashtag ?? "",
+    defaultWishes: ev?.customWishes ?? "",
     theme: ev?.theme ?? "maroon",
     start: toLocalInput(startIso),
     end: toLocalInput(endIso),
@@ -456,6 +458,7 @@ function toInput(f: FormState): EventInput {
     venueAddress: f.venueAddress,
     mapsUrl: f.mapsUrl,
     hashtag: f.hashtag,
+    defaultWishes: f.defaultWishes,
     theme: f.theme,
     startAt: fromLocalInput(f.start),
     endAt: fromLocalInput(f.end),
@@ -535,6 +538,11 @@ function EventFields({ form, set, full }: { form: FormState; set: <K extends key
             {text("venueAddress", "Alamat")}
             {text("mapsUrl", "Link Google Maps", { type: "url", placeholder: "https://maps.app.goo.gl/…" })}
             {text("hashtag", "Hashtag", { placeholder: form.type === "wedding" ? "#RianSalsaSelamanya" : "#WisudaFEB2026" })}
+            {text("defaultWishes", "Ucapan bawaan", {
+              placeholder: form.type === "wedding" ? "Selamat menempuh hidup baru!" : "cth. PEKAN ELEKTRO GOKIL!",
+              maxLength: 120,
+              title: "Dipakai kalau tamu tidak menulis ucapan",
+            })}
             {text("slug", "Slug link acara", { placeholder: "rian-salsa", pattern: "[a-z0-9-]+" })}
           </div>
         </>
