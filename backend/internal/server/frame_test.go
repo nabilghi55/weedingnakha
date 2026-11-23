@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/nakhasolution/weedingnakha/backend/internal/store"
 )
 
 // framePNG draws a w×h frame: an opaque border of `border` px around a
@@ -144,15 +146,15 @@ func TestFrameLimit(t *testing.T) {
 	h := newHarness(t)
 	ev := h.event("limit")
 	adm := h.admin()
-	for i := 0; i < 3; i++ {
+	for i := 0; i < store.MaxFrames; i++ {
 		expect(t, adm.uploadFrame(ev.ID, framePNG(1080, 1350, 60)), http.StatusOK)
 	}
 	expect(t, adm.uploadFrame(ev.ID, framePNG(1080, 1350, 60)), http.StatusConflict)
 
 	pub := decode[map[string]any](t, h.client().do("GET", "/api/public/event?slug=limit", nil))
 	frames, _ := pub["frames"].([]any)
-	if len(frames) != 3 {
-		t.Fatalf("frames = %d, want 3", len(frames))
+	if len(frames) != store.MaxFrames {
+		t.Fatalf("frames = %d, want %d", len(frames), store.MaxFrames)
 	}
 	first := frames[0].(map[string]any)
 	if pub["frameUrl"] != first["url"] {
@@ -162,8 +164,8 @@ func TestFrameLimit(t *testing.T) {
 	// delete one by id: two left, its URL gone, a new upload fits again
 	rec := adm.do("DELETE", "/api/admin/events/"+ev.ID+"/frames/"+first["id"].(string), nil)
 	expect(t, rec, http.StatusOK)
-	if n := len(decode[map[string]any](t, rec)["frames"].([]any)); n != 2 {
-		t.Fatalf("frames after delete = %d, want 2", n)
+	if n := len(decode[map[string]any](t, rec)["frames"].([]any)); n != store.MaxFrames-1 {
+		t.Fatalf("frames after delete = %d, want %d", n, store.MaxFrames-1)
 	}
 	expect(t, h.client().raw("GET", first["url"].(string), nil, ""), http.StatusNotFound)
 	expect(t, adm.do("DELETE", "/api/admin/events/"+ev.ID+"/frames/nope", nil), http.StatusNotFound)

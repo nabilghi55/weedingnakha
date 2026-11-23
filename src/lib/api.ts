@@ -41,7 +41,7 @@ export type EventType = "wedding" | "campus" | "corporate";
 
 /** Public invitation data (no coordinates, tokens or internal IDs). */
 /** Most custom photobooth frames per event. */
-export const MAX_FRAMES = 3;
+export const MAX_FRAMES = 4;
 
 export interface EventFrame {
   id: string;

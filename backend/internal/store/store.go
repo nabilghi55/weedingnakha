@@ -123,7 +123,7 @@ var EventTypes = map[string]bool{TypeWedding: true, TypeCampus: true, TypeCorpor
 
 // Kind returns the event type; events saved before types existed are weddings.
 // MaxFrames is how many custom photobooth frames an event may have.
-const MaxFrames = 3
+const MaxFrames = 4
 
 // Frames returns the event's custom frame keys (older events stored one in FrameKey).
 func (e Event) Frames() []string {

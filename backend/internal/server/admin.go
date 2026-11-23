@@ -420,7 +420,7 @@ func (s *Server) adminDeleteFrame(w http.ResponseWriter, r *http.Request, a acto
 	}, "")
 }
 
-const framesFullMsg = "Maksimal 3 bingkai per acara. Hapus salah satu dulu."
+const framesFullMsg = "Maksimal 4 bingkai per acara. Hapus salah satu dulu."
 
 var errFramesFull = errors.New("frames full")
 

@@ -520,7 +520,7 @@ export default function PhotoboothPage() {
             {mode === "booth" && frames.length > 1 && (
               <div className={styles.framePick}>
                 <span className={styles.label}>Pilih bingkai</span>
-                <div className={styles.frameList} role="radiogroup" aria-label="Pilih bingkai">
+                <div className={`${styles.frameList} ${frames.length > 3 ? styles.frameListFour : ""}`} role="radiogroup" aria-label="Pilih bingkai">
                   {frames.map((f, i) => {
                     const on = f.id === activeFrame?.id;
                     const n = windows[f.url];

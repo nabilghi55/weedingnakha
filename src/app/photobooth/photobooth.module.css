@@ -1045,6 +1045,15 @@
   gap: 10px;
 }
 
+.frameListFour {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.frameListFour .frameOpt {
+  padding: 6px 6px 8px;
+}
+
 .frameOpt {
   display: flex;
   flex-direction: column;
