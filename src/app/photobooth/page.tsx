@@ -12,13 +12,17 @@ import {
   COLLAGE_POSES,
   collageAspects,
   collagePoses,
+  collageWindows,
   ensureFrameFonts,
   frameWindows,
   loadCustomFrame,
   renderCollage,
   renderFrame,
+  panAdjust,
   renderPose,
   selectCustomFrame,
+  STORY_W,
+  zoomAdjust,
   type Adjust,
 } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
@@ -63,7 +67,7 @@ function blockedFor(err: unknown): Access {
   return { kind: "blocked", title: "Terjadi kesalahan", message: (err as Error).message, canRetry: true };
 }
 
-type Rendered = { canvas: HTMLCanvasElement; url: string };
+type Rendered = { canvas: HTMLCanvasElement };
 
 const NAME_KEY = "seribulensa.guestName";
 function readName() {
@@ -283,12 +287,98 @@ export default function PhotoboothPage() {
     ensureFrameFonts().then(() => {
       if (!alive) return;
       const canvas = renderOutput(true);
-      setCollage({ canvas, url: canvas.toDataURL("image/jpeg", 0.9) });
+      setCollage({ canvas });
     });
     return () => {
       alive = false;
     };
   }, [mode, stage, shots, roll, renderOutput]);
+
+  // ---- drag / pinch a pose right on the collage ----
+  const viewRef = useRef<HTMLCanvasElement>(null);
+  // show the composed collage (also after a live drag drew straight into the view)
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !collage) return;
+    view.width = collage.canvas.width;
+    view.height = collage.canvas.height;
+    view.getContext("2d")!.drawImage(collage.canvas, 0, 0);
+  }, [collage]);
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const drag = useRef<{ i: number; adj: Adjust; dist: number; x: number; y: number; moved: boolean; live: Adjust } | null>(null);
+  const frameReq = useRef(0);
+  const centroid = () => {
+    const pts = [...touches.current.values()];
+    return {
+      x: pts.reduce((a, p) => a + p.x, 0) / pts.length,
+      y: pts.reduce((a, p) => a + p.y, 0) / pts.length,
+      dist: pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0,
+    };
+  };
+  /** story pixels per screen pixel of the shown collage */
+  const viewScale = () => STORY_W / (viewRef.current?.getBoundingClientRect().width || STORY_W);
+  const restart = () => {
+    const d = drag.current;
+    if (!d) return;
+    const c = centroid();
+    drag.current = { ...d, adj: d.live, dist: c.dist, x: c.x, y: c.y };
+  };
+  const onViewDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (posting || stage !== "result") return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!drag.current) {
+      const k = STORY_W / rect.width;
+      const px = (e.clientX - rect.left) * k;
+      const py = (e.clientY - rect.top) * k;
+      const i = collageWindows().findIndex((w, j) => shots[j] && px >= w.x && px <= w.x + w.w && py >= w.y && py <= w.y + w.h);
+      if (i < 0) return;
+      const adj = adjusts[i] ?? { zoom: 1, x: 0, y: 0 };
+      drag.current = { i, adj, dist: 0, x: e.clientX, y: e.clientY, moved: false, live: adj };
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    restart();
+  };
+  const onViewMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = drag.current;
+    if (!d || !touches.current.has(e.pointerId)) return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const c = centroid();
+    const k = viewScale();
+    if (Math.hypot(c.x - d.x, c.y - d.y) > 4 || touches.current.size > 1) d.moved = true;
+    if (!d.moved) return;
+    const win = collageWindows()[d.i];
+    let next = d.adj;
+    if (touches.current.size > 1 && d.dist > 0) next = zoomAdjust(next, (d.adj.zoom * c.dist) / d.dist);
+    d.live = panAdjust(shots[d.i], win.w, win.h, next, (c.x - d.x) * k, (c.y - d.y) * k);
+    // redraw at most once per frame, straight into the shown canvas
+    if (!frameReq.current) {
+      frameReq.current = requestAnimationFrame(() => {
+        frameReq.current = 0;
+        const cur = drag.current;
+        if (!cur || !viewRef.current) return;
+        const live = adjusts.map((a, j) => (j === cur.i ? cur.live : a));
+        live[cur.i] = cur.live;
+        renderCollage(shots, shotFilters, event, { credit: true, adjusts: live, target: viewRef.current });
+      });
+    }
+  };
+  const onViewUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!touches.current.delete(e.pointerId)) return;
+    const d = drag.current;
+    if (!d) return;
+    if (touches.current.size) return restart();
+    drag.current = null;
+    if (!d.moved) {
+      setEditIdx(d.i); // a plain tap opens the full editor (zoom slider, retake)
+      return;
+    }
+    setAdjusts((a) => {
+      const next = [...a];
+      next[d.i] = d.live;
+      return next;
+    });
+  };
 
   const resetRoll = () => {
     setShots([]);
@@ -779,14 +869,27 @@ export default function PhotoboothPage() {
         ) : (
         <div className={styles.collageWrap}>
           {collage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={collage.url} alt="Kolase photobooth" className={styles.collage} />
+            <canvas
+              ref={viewRef}
+              className={`${styles.collage} ${!posted ? styles.collageDrag : ""}`}
+              role="img"
+              aria-label="Kolase photobooth — geser foto di dalam bingkai untuk mengatur posisinya"
+              onPointerDown={posted ? undefined : onViewDown}
+              onPointerMove={posted ? undefined : onViewMove}
+              onPointerUp={onViewUp}
+              onPointerCancel={onViewUp}
+            />
           ) : (
             <div className={styles.collageLoading}>
               <span className="spinner" />
             </div>
           )}
         </div>
+        )}
+        {mode !== "moment" && !posted && collage && (
+          <p className={`hint ${styles.centerText} ${styles.dragHint}`}>
+            <Move /> Geser foto langsung di bingkai · cubit untuk zoom
+          </p>
         )}
 
         {posted ? (
@@ -936,7 +1039,7 @@ export default function PhotoboothPage() {
                 <h3 className={styles.groupTitle}>Ketuk foto di atas untuk geser, zoom, ulang, atau hapus</h3>
               ) : (
                 <>
-                  <h3 className={styles.groupTitle}>Ketuk pose untuk geser &amp; zoom, atau ulang</h3>
+                  <h3 className={styles.groupTitle}>Ketuk pose untuk ulang atau atur lebih detail</h3>
                   <div className={styles.retakeRow}>
                     {shots.map((_, i) => (
                       <button key={i} className={styles.retakeBtn} onClick={() => setEditIdx(i)} disabled={!!posting} aria-label={`Atur pose ${i + 1}`}>

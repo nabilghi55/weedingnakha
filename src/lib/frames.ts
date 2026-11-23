@@ -261,6 +261,60 @@ export function coverRect(src: { width: number; height: number }, dw: number, dh
   return { sx: ((src.width - cw) / 2) * (1 - clamp(adj.x)), sy: ((src.height - ch) / 2) * (1 - clamp(adj.y)), cw, ch };
 }
 
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * `from` moved by a drag of (dx, dy) in window pixels (the window being bw×bh):
+ * the photo follows the finger exactly.
+ */
+export function panAdjust(src: { width: number; height: number }, bw: number, bh: number, from: Adjust, dx: number, dy: number): Adjust {
+  const { cw, ch } = coverRect(src, bw, bh, from);
+  const roomX = (src.width - cw) / 2;
+  const roomY = (src.height - ch) / 2;
+  return {
+    ...from,
+    x: roomX > 0.5 ? clampN(from.x + (dx * (cw / bw)) / roomX, -1, 1) : 0,
+    y: roomY > 0.5 ? clampN(from.y + (dy * (ch / bh)) / roomY, -1, 1) : 0,
+  };
+}
+
+export const zoomAdjust = (from: Adjust, zoom: number): Adjust => ({ ...from, zoom: clampN(zoom, 1, MAX_ADJUST_ZOOM) });
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+/** Built-in 2×2 collage cells (story pixels). */
+const GRID = { L: 72, GAP: 20, top: 392 };
+function gridCells(): Rect[] {
+  const cw = (STORY_W - GRID.L * 2 - GRID.GAP) / 2;
+  const chh = cw / CELL_ASPECT;
+  return Array.from({ length: COLLAGE_POSES }, (_, i) => ({
+    x: GRID.L + (i % 2) * (cw + GRID.GAP),
+    y: GRID.top + Math.floor(i / 2) * (chh + GRID.GAP),
+    w: cw,
+    h: chh,
+  }));
+}
+
+/** The organiser's frame fitted into the story, and each window (slightly oversized so no gap shows). */
+function frameLayout() {
+  const { img, holes } = custom!;
+  const k = Math.min(STORY_W / img.naturalWidth, STORY_H / img.naturalHeight);
+  const fw = img.naturalWidth * k;
+  const fh = img.naturalHeight * k;
+  const ox = (STORY_W - fw) / 2;
+  const oy = (STORY_H - fh) / 2;
+  const windows = holes.map((hole) => {
+    const bleed = Math.max(4, Math.min(hole.w, hole.h) * k * 0.02);
+    return { x: ox + hole.x * k - bleed, y: oy + hole.y * k - bleed, w: hole.w * k + bleed * 2, h: hole.h * k + bleed * 2 };
+  });
+  return { img, ox, oy, fw, fh, windows };
+}
+
+/** Where each pose sits in the photobooth collage (story pixels, index = pose). */
+export function collageWindows(): Rect[] {
+  return custom?.holes.length ? frameLayout().windows : gridCells();
+}
+
 /** Draws `src` filling the destination rect (centre crop like object-fit: cover, moved/zoomed by `adj`). */
 function drawCover(ctx: CanvasRenderingContext2D, src: Source, filter: FilterId, dx: number, dy: number, dw: number, dh: number, adj?: Adjust) {
   const { sx, sy, cw, ch } = coverRect(src, dw, dh, adj);
@@ -574,10 +628,20 @@ export function renderCollage(
   /** one filter for every pose, or one per pose (index = pose) */
   filter: FilterId | readonly FilterId[],
   ev: WeddingEvent,
-  { credit = true, adjusts = [] }: { credit?: boolean; /** placement per pose (index = pose) */ adjusts?: readonly (Adjust | undefined)[] } = {},
+  {
+    credit = true,
+    adjusts = [],
+    target,
+  }: {
+    credit?: boolean;
+    /** placement per pose (index = pose) */
+    adjusts?: readonly (Adjust | undefined)[];
+    /** draw into this canvas instead of a new one (live preview while dragging) */
+    target?: HTMLCanvasElement;
+  } = {},
 ) {
   // the organiser's frame (with photo windows) replaces the built-in layout
-  if (custom?.holes.length) return renderFrameCollage(shots, filter, adjusts);
+  if (custom?.holes.length) return renderFrameCollage(shots, filter, adjusts, target);
   const filterAt = (i: number) => poseFilter(filter, i);
   const CW = STORY_W;
   const CH = STORY_H;
@@ -588,7 +652,7 @@ export function renderCollage(
   const elegant = cssVar("--font-elegant", "Georgia, serif");
   const sans = cssVar("--font-jakarta", "sans-serif");
 
-  const canvas = document.createElement("canvas");
+  const canvas = target ?? document.createElement("canvas");
   canvas.width = CW;
   canvas.height = CH;
   const ctx = canvas.getContext("2d")!;
@@ -616,14 +680,10 @@ export function renderCollage(
   if (date) aligned(ctx, date, cx, 330, `600 24px ${sans}`, wine, "center", 6);
 
   // 2×2 grid of portrait 4:5 poses
-  const L = 72;
-  const GAP = 20;
-  const cw = (CW - L * 2 - GAP) / 2;
-  const chh = cw / CELL_ASPECT;
-  const top = 392;
-  for (let i = 0; i < COLLAGE_POSES; i++) {
-    const x = L + (i % 2) * (cw + GAP);
-    const y = top + Math.floor(i / 2) * (chh + GAP);
+  const cells = gridCells();
+  const { GAP, top } = GRID;
+  const chh = cells[0].h;
+  cells.forEach(({ x, y, w: cw }, i) => {
     const shot = shots[i];
     if (shot) {
       drawCover(ctx, shot, filterAt(i), x, y, cw, chh, adjusts[i]);
@@ -632,7 +692,7 @@ export function renderCollage(
       ctx.fillRect(x, y, cw, chh);
       aligned(ctx, String(i + 1), x + cw / 2, y + chh / 2 + 40, `italic 500 120px ${elegant}`, "rgba(91,34,38,0.3)", "center");
     }
-  }
+  });
   const gridEnd = top + chh * 2 + GAP;
 
   // footer: hashtag · ornament · wordmark · handle
@@ -657,29 +717,21 @@ export function renderCollage(
  * (slightly oversized so no gap shows at the frame's edges), then the PNG is
  * laid on top. Output is always an Instagram Story (1080×1920).
  */
-function renderFrameCollage(shots: (Source | null | undefined)[], filter: FilterId | readonly FilterId[], adjusts: readonly (Adjust | undefined)[]) {
-  const { img, holes } = custom!;
-  const CW = STORY_W;
-  const CH = STORY_H;
-  // fit the frame inside the story (a 9:16 PNG fills it exactly), centred
-  const k = Math.min(CW / img.naturalWidth, CH / img.naturalHeight);
-  const fw = img.naturalWidth * k;
-  const fh = img.naturalHeight * k;
-  const ox = (CW - fw) / 2;
-  const oy = (CH - fh) / 2;
-  const canvas = document.createElement("canvas");
-  canvas.width = CW;
-  canvas.height = CH;
+function renderFrameCollage(
+  shots: (Source | null | undefined)[],
+  filter: FilterId | readonly FilterId[],
+  adjusts: readonly (Adjust | undefined)[],
+  target?: HTMLCanvasElement,
+) {
+  const { img, ox, oy, fw, fh, windows } = frameLayout();
+  const canvas = target ?? document.createElement("canvas");
+  canvas.width = STORY_W;
+  canvas.height = STORY_H;
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#fbebd9";
-  ctx.fillRect(0, 0, CW, CH);
+  ctx.fillRect(0, 0, STORY_W, STORY_H);
   const serif = cssVar("--font-playfair", "Georgia, serif");
-  holes.forEach((hole, i) => {
-    const bleed = Math.max(4, Math.min(hole.w, hole.h) * k * 0.02);
-    const x = ox + hole.x * k - bleed;
-    const y = oy + hole.y * k - bleed;
-    const w = hole.w * k + bleed * 2;
-    const h = hole.h * k + bleed * 2;
+  windows.forEach(({ x, y, w, h }, i) => {
     const shot = shots[i];
     if (shot) {
       drawCover(ctx, shot, poseFilter(filter, i), x, y, w, h, adjusts[i]);

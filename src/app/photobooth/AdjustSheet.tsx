@@ -4,12 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Move, RotateCcw, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { filterStyle } from "@/components/FilterPicker";
 import type { FilterId } from "@/lib/api";
-import { coverRect, MAX_ADJUST_ZOOM, NO_ADJUST, renderPose, type Adjust } from "@/lib/frames";
+import { MAX_ADJUST_ZOOM, NO_ADJUST, panAdjust, renderPose, zoomAdjust, type Adjust } from "@/lib/frames";
 import styles from "./adjust.module.css";
 
 type Src = HTMLCanvasElement;
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /**
  * Full-screen editor for one pose: drag to move the photo inside its window,
@@ -68,18 +66,7 @@ export default function AdjustSheet({
   /** Moves the photo by a drag of (dx, dy) screen pixels, starting from `from`. */
   const moved = (from: Adjust, dx: number, dy: number): Adjust => {
     const box = boxRef.current;
-    if (!box) return from;
-    const bw = box.clientWidth;
-    const bh = box.clientHeight;
-    const { cw, ch } = coverRect(src, bw, bh, from);
-    // one screen pixel = cw / bw source pixels; x/y span the free room on each side
-    const roomX = (src.width - cw) / 2;
-    const roomY = (src.height - ch) / 2;
-    return {
-      ...from,
-      x: roomX > 0.5 ? clamp(from.x + (dx * (cw / bw)) / roomX, -1, 1) : 0,
-      y: roomY > 0.5 ? clamp(from.y + (dy * (ch / bh)) / roomY, -1, 1) : 0,
-    };
+    return box ? panAdjust(src, box.clientWidth, box.clientHeight, from, dx, dy) : from;
   };
 
   const start = () => {
@@ -106,7 +93,7 @@ export default function AdjustSheet({
     let next = g.adj;
     if (pts.length > 1 && g.dist > 0) {
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      next = { ...next, zoom: clamp((g.adj.zoom * dist) / g.dist, 1, MAX_ADJUST_ZOOM) };
+      next = zoomAdjust(next, (g.adj.zoom * dist) / g.dist);
     }
     setAdj(moved(next, cx - g.x, cy - g.y));
   };
@@ -117,7 +104,7 @@ export default function AdjustSheet({
     else gesture.current = null;
   };
 
-  const zoomBy = (z: number) => setAdj((a) => ({ ...a, zoom: clamp(z, 1, MAX_ADJUST_ZOOM) }));
+  const zoomBy = (z: number) => setAdj((a) => zoomAdjust(a, z));
 
   return (
     <div className={styles.sheet} role="dialog" aria-modal="true" aria-label={`Atur ${label}`}>
