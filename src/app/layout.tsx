@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Italiana, Playfair_Display, Plus_Jakarta_Sans, Source_Serif_4 } from "next/font/google";
+import { Cormorant_Garamond, Dancing_Script, Italiana, Playfair_Display, Plus_Jakarta_Sans, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
 import AppShell from "@/components/AppShell";
@@ -45,6 +45,14 @@ const elegant = Cormorant_Garamond({
   display: "swap",
 });
 
+// Handwritten caption on moment polaroids (canvas only, reads --font-script)
+const script = Dancing_Script({
+  subsets: ["latin"],
+  variable: "--font-script",
+  weight: ["500", "600"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Seribu Lensa — Wedding Photobooth",
   description:
@@ -60,7 +68,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="id" data-theme="maroon" className={`${jakarta.variable} ${playfair.variable} ${news.variable} ${display.variable} ${elegant.variable}`}>
+    <html lang="id" data-theme="maroon" className={`${jakarta.variable} ${playfair.variable} ${news.variable} ${display.variable} ${elegant.variable} ${script.variable}`}>
       <body>
         <AppProvider>
           <AppShell>{children}</AppShell>

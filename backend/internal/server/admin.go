@@ -75,6 +75,7 @@ type eventInput struct {
 	MapsURL     string     `json:"mapsUrl"`
 	Hashtag     string     `json:"hashtag"`
 	Wishes      *string    `json:"defaultWishes"` // nil keeps the current text
+	Polaroid    *string    `json:"polaroidText"`  // moment polaroid caption; nil keeps it
 	PhotoLimit  *int       `json:"photoLimit"`    // per-device collages: 5/10/30/100/500 or -1 (unlimited); nil keeps it
 	MomentLimit *int       `json:"momentLimit"`   // per-device moment photos, same choices
 	Theme       string     `json:"theme"`
@@ -163,6 +164,9 @@ func applyEventInput(e *store.Event, in eventInput) (map[string]map[string]strin
 	e.MapsURL, e.Hashtag, e.Theme = in.MapsURL, clean(in.Hashtag, 40), in.Theme
 	if in.Wishes != nil {
 		e.Wishes = clean(*in.Wishes, 120)
+	}
+	if in.Polaroid != nil {
+		e.Polaroid = clean(*in.Polaroid, 40)
 	}
 	for _, q := range []struct {
 		in    *int

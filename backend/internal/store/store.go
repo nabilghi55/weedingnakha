@@ -217,6 +217,7 @@ type Event struct {
 	MapsURL     string   `json:"mapsUrl"`
 	Hashtag     string   `json:"hashtag"`
 	Wishes      string   `json:"defaultWishes,omitempty"` // used when a guest leaves the wish empty
+	Polaroid    string   `json:"polaroidText,omitempty"`  // caption on moment polaroids ("" = event name)
 	Theme       string   `json:"theme"`
 	CoverKey    string   `json:"coverKey,omitempty"`
 	FrameKey    string   `json:"frameKey,omitempty"`  // legacy single frame; read through Frames()

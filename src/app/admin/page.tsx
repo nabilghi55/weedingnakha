@@ -405,6 +405,7 @@ interface FormState {
   mapsUrl: string;
   hashtag: string;
   defaultWishes: string;
+  polaroidText: string;
   photoLimit: number;
   momentLimit: number;
   theme: AdminEvent["theme"];
@@ -436,6 +437,7 @@ function formFrom(ev?: AdminEvent): FormState {
     mapsUrl: ev?.mapsUrl ?? "",
     hashtag: ev?.hashtag ?? "",
     defaultWishes: ev?.customWishes ?? "",
+    polaroidText: ev?.polaroidText ?? "",
     photoLimit: ev?.maxPhotosPerGuest ?? 5,
     momentLimit: ev?.maxMomentsPerGuest ?? 10,
     theme: ev?.theme ?? "maroon",
@@ -465,6 +467,7 @@ function toInput(f: FormState): EventInput {
     mapsUrl: f.mapsUrl,
     hashtag: f.hashtag,
     defaultWishes: f.defaultWishes,
+    polaroidText: f.polaroidText,
     photoLimit: f.photoLimit,
     momentLimit: f.momentLimit,
     theme: f.theme,
@@ -550,6 +553,11 @@ function EventFields({ form, set, full }: { form: FormState; set: <K extends key
               placeholder: form.type === "wedding" ? "Selamat menempuh hidup baru!" : "cth. PEKAN ELEKTRO GOKIL!",
               maxLength: 120,
               title: "Dipakai kalau tamu tidak menulis ucapan",
+            })}
+            {text("polaroidText", "Teks polaroid (foto momen)", {
+              placeholder: "cth. Konvokesyen UPSI — kosong = tanpa polaroid",
+              maxLength: 40,
+              title: "Diisi = foto momen dapat bingkai polaroid dengan tulisan ini. Kosong = foto momen polos.",
             })}
             {text("slug", "Slug link acara", { placeholder: "rian-salsa", pattern: "[a-z0-9-]+" })}
           </div>

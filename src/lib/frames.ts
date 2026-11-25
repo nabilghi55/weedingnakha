@@ -171,6 +171,7 @@ export async function ensureFrameFonts() {
       document.fonts.load(`italic 500 80px ${serif}`),
       document.fonts.load(`400 56px ${cssVar("--font-display", "serif")}`),
       document.fonts.load(`italic 500 80px ${cssVar("--font-elegant", "serif")}`),
+      document.fonts.load(`600 80px ${cssVar("--font-script", "cursive")}`),
       document.fonts.load(`800 40px ${sans}`),
       document.fonts.load(`600 24px ${sans}`),
     ])]);
@@ -562,6 +563,71 @@ export function renderFrame(
     }
   }
 
+  return canvas;
+}
+
+/** Looks a guest can give their moment photos (the photo window stays 3:4). */
+export type MomentFrameId = "polaroid" | "polaroid-maroon" | "plain";
+
+export const MOMENT_FRAMES: { id: MomentFrameId; name: string; paper: string; ink: string }[] = [
+  { id: "polaroid", name: "Polaroid", paper: "#fdfbf6", ink: "#1c0507" },
+  { id: "polaroid-maroon", name: "Polaroid Maroon", paper: "#5b2226", ink: "#fbebd9" },
+  { id: "plain", name: "Tanpa Bingkai", paper: "", ink: "" },
+];
+
+/** Polaroid caption: the organiser's text, else the event name. */
+export function polaroidCaption(ev: WeddingEvent) {
+  return ev.polaroidText?.trim() || eventName(ev);
+}
+
+/** "25.11.26" — the day the photo was taken, like an instant-film date. */
+export function polaroidDate(d = new Date()) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${p(d.getFullYear() % 100)}`;
+}
+
+/**
+ * A moment photo: plain 3:4, or an instant-film polaroid — the 3:4 photo on
+ * paper with a thick bottom edge carrying a handwritten caption and the date.
+ */
+export function renderMomentFrame(
+  snapshot: Source,
+  frame: MomentFrameId,
+  filter: FilterId,
+  ev: WeddingEvent,
+  { credit = true, adjust, date = new Date() }: { credit?: boolean; adjust?: Adjust; date?: Date } = {},
+) {
+  const look = MOMENT_FRAMES.find((f) => f.id === frame);
+  if (!look || frame === "plain") return renderPlain(snapshot, filter, credit, adjust);
+  const CW = 1080;
+  const side = 64;
+  const PW = CW - side * 2; // 952
+  const PH = Math.round((PW * 4) / 3); // 1269
+  const bottom = 300;
+  const CH = side + PH + bottom;
+  const canvas = document.createElement("canvas");
+  canvas.width = CW;
+  canvas.height = CH;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = look.paper;
+  ctx.fillRect(0, 0, CW, CH);
+  drawCover(ctx, snapshot, filter, side, side, PW, PH, adjust);
+  // a hairline where the print meets the paper
+  ctx.strokeStyle = frame === "polaroid" ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(side, side, PW, PH);
+
+  const base = side + PH;
+  const cx = CW / 2;
+  const script = cssVar("--font-script", "cursive");
+  const sans = cssVar("--font-jakarta", "sans-serif");
+  const caption = polaroidCaption(ev);
+  const px = fitSize(ctx, caption, (n) => `600 ${n}px ${script}`, 96, PW - 80);
+  text(ctx, caption, cx, base + 150, `600 ${px}px ${script}`, look.ink);
+  text(ctx, polaroidDate(date), cx, base + 222, `600 26px ${sans}`, frame === "polaroid" ? "#8a7a72" : "rgba(251,235,217,0.7)", 8);
+  if (credit) {
+    aligned(ctx, BRAND.instagram, CW - side, CH - 28, `600 18px ${sans}`, frame === "polaroid" ? "rgba(28,5,7,0.4)" : "rgba(251,235,217,0.5)", "right", 1);
+  }
   return canvas;
 }
 

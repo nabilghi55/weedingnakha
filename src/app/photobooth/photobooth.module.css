@@ -1171,3 +1171,86 @@
   color: var(--accent);
   font-weight: 700;
 }
+
+/* ---------- moment polaroid: preview mirrors the canvas (photo 3:4 on paper, caption + date below) ---------- */
+.momentPolaroid {
+  aspect-ratio: 1080 / 1633;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 6% 6% 0;
+  border-radius: 2px;
+  background: var(--paper-c);
+}
+
+.momentPolaroid img {
+  height: auto;
+  aspect-ratio: 3 / 4;
+}
+
+.momentPolaroid > .spinner {
+  margin: 40% auto;
+}
+
+.polaroidText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  color: var(--ink-c);
+}
+
+.polaroidText span {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-script), cursive;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.polaroidText small {
+  font-size: 0.42rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  opacity: 0.65;
+}
+
+.momentFrames {
+  margin-bottom: 18px;
+}
+
+.swatchPolaroid {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 7px 7px 4px;
+  background:
+    linear-gradient(#b9aaa0, #6d5a52) 7px 7px / calc(100% - 14px) 72% no-repeat,
+    var(--paper-c);
+  color: var(--ink-c);
+}
+
+.swatchPolaroid i {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-script), cursive;
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatchPlain {
+  background: linear-gradient(135deg, #8a7a6c, #4a1c22);
+}

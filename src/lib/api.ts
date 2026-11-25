@@ -90,6 +90,8 @@ export interface WeddingEvent {
   maxMomentsPerGuest?: number;
   /** what an empty guest wish becomes (the organiser's text or a built-in greeting) */
   defaultWishes?: string;
+  /** caption on moment polaroids ("" = the event name) */
+  polaroidText?: string;
 }
 
 export interface BoothState {
@@ -229,6 +231,7 @@ export interface EventInput {
   mapsUrl: string;
   hashtag: string;
   defaultWishes?: string;
+  polaroidText?: string;
   /** per-device limits: one of QUOTA_CHOICES (-1 = unlimited) */
   photoLimit?: number;
   momentLimit?: number;

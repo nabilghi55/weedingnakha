@@ -46,6 +46,7 @@ type publicEvent struct {
 	MapsURL            string     `json:"mapsUrl"`
 	Hashtag            string     `json:"hashtag"`
 	DefaultWishes      string     `json:"defaultWishes"` // what an empty wish becomes
+	PolaroidText       string     `json:"polaroidText"`  // caption on moment polaroids ("" = event name)
 	Theme              string     `json:"theme"`
 	CoverURL           string     `json:"coverUrl"`
 	FrameURL           string     `json:"frameUrl"` // first frame (older clients)
@@ -79,6 +80,7 @@ func (s *Server) publicView(ev store.Event) publicEvent {
 		EndTime: ev.EndAt.In(store.EventLocation).Format("15:04"),
 		Venue:   ev.Venue, VenueAddress: ev.VenueAddr, MapsURL: ev.MapsURL, Hashtag: ev.Hashtag,
 		DefaultWishes: defaultWishes(ev),
+		PolaroidText:  ev.Polaroid,
 		Theme:         ev.Theme, CoverURL: cover, FrameURL: frame, Frames: frames, Status: string(ev.Status),
 		PhotoboothOpen:     s.booth(ev).Open,
 		GalleryVisibility:  string(ev.GalleryVisibility),

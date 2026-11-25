@@ -16,14 +16,18 @@ import {
   ensureFrameFonts,
   frameWindows,
   loadCustomFrame,
+  MOMENT_FRAMES,
+  polaroidCaption,
+  polaroidDate,
   renderCollage,
-  renderFrame,
+  renderMomentFrame,
   panAdjust,
   renderPose,
   selectCustomFrame,
   STORY_W,
   zoomAdjust,
   type Adjust,
+  type MomentFrameId,
 } from "@/lib/frames";
 import { canvasToBlob } from "@/lib/image";
 import { BRAND } from "@/lib/brand";
@@ -85,7 +89,7 @@ function saveName(name: string) {
   }
 }
 
-/** Moment photos are portrait 3:4, without a frame. */
+/** Moment photos are portrait 3:4 (inside the polaroid too). */
 const MOMENT_ASPECT = 3 / 4;
 /** Moment photos a guest can take in one go before sending them together. */
 const MOMENT_ROLL = 10;
@@ -176,6 +180,11 @@ export default function PhotoboothPage() {
 
   // "booth" = framed collage of several poses · "moment" = up to 10 plain photos, no frame
   const [mode, setMode] = useState<"booth" | "moment">("booth");
+  // moments: polaroid (the event's caption + date) or the plain photo, for the whole roll.
+  // Only events with a polaroid caption set in Admin offer it; the rest stay plain.
+  const polaroidOn = !!event.polaroidText?.trim();
+  const [pickedFrame, setMomentFrame] = useState<MomentFrameId>("polaroid");
+  const momentFrame: MomentFrameId = polaroidOn ? pickedFrame : "plain";
   // -1 from the server = no per-device limit for this event
   const unl = (n: number | undefined) => (n != null && n < 0 ? Infinity : (n ?? 0));
   const remaining = unl(session?.remaining);
@@ -192,11 +201,14 @@ export default function PhotoboothPage() {
     (credit: boolean) => renderCollage(shots, shotFilters, event, { credit, adjusts }),
     [shots, shotFilters, event, adjusts],
   );
-  /** Moment photo `i`, plain 3:4. */
+  /** Moment photo `i`, in the chosen moment frame. */
   const renderMoment = useCallback(
-    (i: number, credit: boolean) => renderFrame(shots[i], "plain", shotFilters[i] ?? filter, event, { credit, adjust: adjusts[i] }),
-    [shots, shotFilters, filter, event, adjusts],
+    (i: number, credit: boolean) =>
+      renderMomentFrame(shots[i], momentFrame, shotFilters[i] ?? filter, event, { credit, adjust: adjusts[i] }),
+    [shots, shotFilters, filter, event, adjusts, momentFrame],
   );
+  const momentLook = MOMENT_FRAMES.find((f) => f.id === momentFrame);
+  const framed = momentFrame !== "plain";
   // small previews of each pose as placed (filter shown via CSS)
   const [previews, setPreviews] = useState<string[]>([]);
   useEffect(() => {
@@ -858,7 +870,8 @@ export default function PhotoboothPage() {
               <button
                 key={i}
                 type="button"
-                className={styles.momentItem}
+                className={`${styles.momentItem} ${framed ? styles.momentPolaroid : ""}`}
+                style={framed ? ({ "--paper-c": momentLook?.paper, "--ink-c": momentLook?.ink } as React.CSSProperties) : undefined}
                 onClick={() => setEditIdx(i)}
                 disabled={posted || i < sentUpTo || !!posting}
                 aria-label={`Atur foto ${i + 1}`}
@@ -868,6 +881,12 @@ export default function PhotoboothPage() {
                   <img src={previews[i]} alt={`Foto momen ${i + 1}`} style={filterStyle(shotFilters[i] ?? "none")} />
                 ) : (
                   <span className="spinner" />
+                )}
+                {framed && (
+                  <span className={styles.polaroidText}>
+                    <span>{polaroidCaption(event)}</span>
+                    <small>{polaroidDate()}</small>
+                  </span>
                 )}
                 <span className={styles.momentNo}>{i < sentUpTo ? <CheckCircle2 /> : i + 1}</span>
               </button>
@@ -892,6 +911,34 @@ export default function PhotoboothPage() {
             </div>
           )}
         </div>
+        )}
+        {mode === "moment" && polaroidOn && !posted && (
+          <div className={styles.momentFrames}>
+            <h3 className={styles.groupTitle}>Bingkai foto</h3>
+            <div className={styles.frameRow} role="radiogroup" aria-label="Bingkai foto momen">
+              {MOMENT_FRAMES.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={momentFrame === f.id}
+                  className={`${styles.frameCard} ${momentFrame === f.id ? styles.frameCardOn : ""}`}
+                  onClick={() => setMomentFrame(f.id)}
+                  disabled={!!posting}
+                >
+                  <span className={styles.frameThumb}>
+                    <span
+                      className={f.id === "plain" ? styles.swatchPlain : styles.swatchPolaroid}
+                      style={{ "--paper-c": f.paper, "--ink-c": f.ink } as React.CSSProperties}
+                    >
+                      {f.id !== "plain" && <i>{polaroidCaption(event)}</i>}
+                    </span>
+                  </span>
+                  <small>{f.name}</small>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {mode !== "moment" && !posted && collage && (
           <p className={`hint ${styles.centerText} ${styles.dragHint}`}>
