@@ -75,6 +75,8 @@ type eventInput struct {
 	MapsURL     string     `json:"mapsUrl"`
 	Hashtag     string     `json:"hashtag"`
 	Wishes      *string    `json:"defaultWishes"` // nil keeps the current text
+	PhotoLimit  *int       `json:"photoLimit"`    // per-device collages: 5/10/30/100/500 or -1 (unlimited); nil keeps it
+	MomentLimit *int       `json:"momentLimit"`   // per-device moment photos, same choices
 	Theme       string     `json:"theme"`
 	StartAt     *time.Time `json:"startAt"`
 	EndAt       *time.Time `json:"endAt"`
@@ -124,6 +126,11 @@ func applyEventInput(e *store.Event, in eventInput) (map[string]map[string]strin
 	if !in.EndAt.After(*in.StartAt) || in.EndAt.Sub(*in.StartAt) > 5*24*time.Hour {
 		return bad("BAD_SCHEDULE", "Jam selesai harus setelah jam mulai (maksimal 5 hari).")
 	}
+	for _, l := range []*int{in.PhotoLimit, in.MomentLimit} {
+		if l != nil && !store.QuotaChoices[*l] {
+			return bad("BAD_LIMIT", "Batas per perangkat harus 5, 10, 30, 100, 500 atau tanpa batas.")
+		}
+	}
 	status := store.EventStatus(in.Status)
 	if in.Status == "" {
 		status = e.Status
@@ -156,6 +163,16 @@ func applyEventInput(e *store.Event, in eventInput) (map[string]map[string]strin
 	e.MapsURL, e.Hashtag, e.Theme = in.MapsURL, clean(in.Hashtag, 40), in.Theme
 	if in.Wishes != nil {
 		e.Wishes = clean(*in.Wishes, 120)
+	}
+	for _, q := range []struct {
+		in    *int
+		field *int
+		src   string
+	}{{in.PhotoLimit, &e.PhotoLimit, "photobooth"}, {in.MomentLimit, &e.MomentLimit, store.SourceMoment}} {
+		if q.in != nil && *q.in != e.QuotaFor(q.src) {
+			changes["event.limit_change"+"."+q.src] = map[string]string{"source": q.src, "from": itoa(e.QuotaFor(q.src)), "to": itoa(*q.in)}
+			*q.field = *q.in
+		}
 	}
 	e.StartAt, e.EndAt = in.StartAt.UTC(), in.EndAt.UTC()
 	return changes, nil

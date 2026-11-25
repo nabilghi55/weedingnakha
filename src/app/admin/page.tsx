@@ -25,6 +25,8 @@ import {
   downloadAdminZip,
   eventFrames,
   MAX_FRAMES,
+  QUOTA_CHOICES,
+  UNLIMITED,
   photoSrc,
   setAdminKey,
   type AdminEvent,
@@ -403,6 +405,8 @@ interface FormState {
   mapsUrl: string;
   hashtag: string;
   defaultWishes: string;
+  photoLimit: number;
+  momentLimit: number;
   theme: AdminEvent["theme"];
   start: string; // datetime-local
   end: string;
@@ -432,6 +436,8 @@ function formFrom(ev?: AdminEvent): FormState {
     mapsUrl: ev?.mapsUrl ?? "",
     hashtag: ev?.hashtag ?? "",
     defaultWishes: ev?.customWishes ?? "",
+    photoLimit: ev?.maxPhotosPerGuest ?? 5,
+    momentLimit: ev?.maxMomentsPerGuest ?? 10,
     theme: ev?.theme ?? "maroon",
     start: toLocalInput(startIso),
     end: toLocalInput(endIso),
@@ -459,6 +465,8 @@ function toInput(f: FormState): EventInput {
     mapsUrl: f.mapsUrl,
     hashtag: f.hashtag,
     defaultWishes: f.defaultWishes,
+    photoLimit: f.photoLimit,
+    momentLimit: f.momentLimit,
     theme: f.theme,
     startAt: fromLocalInput(f.start),
     endAt: fromLocalInput(f.end),
@@ -665,6 +673,33 @@ function Settings({ ev, onSaved, onError }: TabProps & { onSaved: (e: AdminEvent
             </button>
           ))}
         </div>
+
+        <h2 style={{ marginTop: 8 }}>Batas per perangkat</h2>
+        {(
+          [
+            ["photoLimit", "Kolase photobooth"],
+            ["momentLimit", "Foto momen"],
+          ] as const
+        ).map(([key, label]) => (
+          <div key={key} className="field">
+            <span className="label">{label}</span>
+            <div className="chips" role="radiogroup" aria-label={`Batas ${label.toLowerCase()} per perangkat`}>
+              {QUOTA_CHOICES.map((n) => (
+                <button
+                  type="button"
+                  key={n}
+                  role="radio"
+                  aria-checked={form[key] === n}
+                  className={`chip ${form[key] === n ? "active" : ""}`}
+                  onClick={() => set(key, n)}
+                >
+                  {n === UNLIMITED ? "Tanpa batas" : n}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="hint">Berapa kali satu HP tamu boleh mengirim. Perubahan langsung berlaku, termasuk untuk tamu yang sudah check-in.</p>
 
         <h2 style={{ marginTop: 8 }}>Tema warna</h2>
         <div className={styles.themes}>

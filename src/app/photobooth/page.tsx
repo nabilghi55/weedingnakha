@@ -90,6 +90,11 @@ const MOMENT_ASPECT = 3 / 4;
 /** Moment photos a guest can take in one go before sending them together. */
 const MOMENT_ROLL = 10;
 
+/** "Sisa 3 kolase photobooth untuk HP ini", or the unlimited wording. */
+function leftText(n: number, unit: string) {
+  return n === Infinity ? `HP ini bebas kirim ${unit} tanpa batas` : `Sisa ${n} ${unit} untuk HP ini`;
+}
+
 export default function PhotoboothPage() {
   const { event, setSlug } = useApp();
   const [access, setAccess] = useState<Access>({ kind: "checking" });
@@ -171,8 +176,10 @@ export default function PhotoboothPage() {
 
   // "booth" = framed collage of several poses · "moment" = up to 10 plain photos, no frame
   const [mode, setMode] = useState<"booth" | "moment">("booth");
-  const remaining = session?.remaining ?? 0;
-  const momentsLeft = session?.momentsRemaining ?? 0;
+  // -1 from the server = no per-device limit for this event
+  const unl = (n: number | undefined) => (n != null && n < 0 ? Infinity : (n ?? 0));
+  const remaining = unl(session?.remaining);
+  const momentsLeft = unl(session?.momentsRemaining);
   /** sends left on this device for the current mode (moments have their own quota) */
   const left = mode === "moment" ? momentsLeft : remaining;
   const roll = mode === "moment" ? Math.max(1, Math.min(MOMENT_ROLL, momentsLeft)) : poses;
@@ -750,8 +757,8 @@ export default function PhotoboothPage() {
                 </button>
                 <p className={`hint ${styles.centerText}`}>
                   {mode === "moment"
-                    ? `Sisa ${momentsLeft} foto momen untuk HP ini · jepret sampai ${roll} foto, lalu kirim sekaligus`
-                    : `Sisa ${remaining} kolase photobooth untuk HP ini`}
+                    ? `${leftText(momentsLeft, "foto momen")} · jepret sampai ${roll} foto, lalu kirim sekaligus`
+                    : leftText(remaining, "kolase photobooth")}
                 </p>
               </form>
             ) : (
@@ -930,8 +937,8 @@ export default function PhotoboothPage() {
             <p className="hint">
               {left > 0
                 ? mode === "moment"
-                  ? `Sisa ${momentsLeft} foto momen untuk HP ini.`
-                  : `Sisa ${remaining} kolase photobooth untuk HP ini.`
+                  ? `${leftText(momentsLeft, "foto momen")}.`
+                  : `${leftText(remaining, "kolase photobooth")}.`
                 : mode === "moment"
                   ? "Kuota foto momen HP ini sudah terpakai semua."
                   : "Kuota kolase photobooth HP ini sudah terpakai semua."}

@@ -53,8 +53,8 @@ type publicEvent struct {
 	Status             string     `json:"status"`
 	PhotoboothOpen     bool       `json:"photoboothOpen"`
 	GalleryVisibility  string     `json:"galleryVisibility"`
-	MaxPhotosPerGuest  int        `json:"maxPhotosPerGuest"`
-	MaxMomentsPerGuest int        `json:"maxMomentsPerGuest"`
+	MaxPhotosPerGuest  int        `json:"maxPhotosPerGuest"`  // -1 = unlimited
+	MaxMomentsPerGuest int        `json:"maxMomentsPerGuest"` // -1 = unlimited
 }
 
 func (s *Server) publicView(ev store.Event) publicEvent {
@@ -82,8 +82,8 @@ func (s *Server) publicView(ev store.Event) publicEvent {
 		Theme:         ev.Theme, CoverURL: cover, FrameURL: frame, Frames: frames, Status: string(ev.Status),
 		PhotoboothOpen:     s.booth(ev).Open,
 		GalleryVisibility:  string(ev.GalleryVisibility),
-		MaxPhotosPerGuest:  store.MaxPhotosPerGuest,
-		MaxMomentsPerGuest: store.MaxMomentsPerGuest,
+		MaxPhotosPerGuest:  ev.QuotaFor("photobooth"),
+		MaxMomentsPerGuest: ev.QuotaFor(store.SourceMoment),
 	}
 }
 
@@ -742,7 +742,7 @@ func (s *Server) statsPayload(ev store.Event) map[string]any {
 		"totalLikes":        st.TotalLikes,
 		"lastHour":          st.LastHour,
 		"liveViewers":       s.hub.Count(ev.ID),
-		"maxPhotosPerGuest": store.MaxPhotosPerGuest,
+		"maxPhotosPerGuest": ev.QuotaFor("photobooth"),
 	}
 }
 

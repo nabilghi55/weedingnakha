@@ -163,12 +163,39 @@ const (
 // SourceMoment marks a plain moment photo; anything else is a photobooth collage.
 const SourceMoment = "moment"
 
-// QuotaFor is the per-device limit of the given upload source.
+// QuotaFor is the default per-device limit of the given upload source.
 func QuotaFor(source string) int {
 	if source == SourceMoment {
 		return MaxMomentsPerGuest
 	}
 	return MaxPhotosPerGuest
+}
+
+// Unlimited is the per-device limit meaning "no cap".
+const Unlimited = -1
+
+// QuotaChoices are the per-device limits an admin may pick for an event.
+var QuotaChoices = map[int]bool{5: true, 10: true, 30: true, 100: true, 500: true, Unlimited: true}
+
+// QuotaFor is the event's per-device limit of the given upload source
+// (Unlimited = no cap); events without their own setting use the defaults.
+func (e Event) QuotaFor(source string) int {
+	limit := e.PhotoLimit
+	if source == SourceMoment {
+		limit = e.MomentLimit
+	}
+	if limit == 0 {
+		return QuotaFor(source)
+	}
+	return limit
+}
+
+// Remaining is how many uploads are left under limit (Unlimited stays Unlimited).
+func Remaining(limit, used int) int {
+	if limit == Unlimited {
+		return Unlimited
+	}
+	return max(0, limit-used)
 }
 
 // ---------- Records ----------
@@ -194,6 +221,10 @@ type Event struct {
 	CoverKey    string   `json:"coverKey,omitempty"`
 	FrameKey    string   `json:"frameKey,omitempty"`  // legacy single frame; read through Frames()
 	FrameKeys   []string `json:"frameKeys,omitempty"` // custom photobooth frames (transparent PNGs), at most MaxFrames
+
+	// Per-device limits: 0 = default (MaxPhotosPerGuest / MaxMomentsPerGuest), Unlimited = no cap.
+	PhotoLimit  int `json:"photoLimit,omitempty"`
+	MomentLimit int `json:"momentLimit,omitempty"`
 
 	// Schedule + geofence (private to host/admin).
 	StartAt      time.Time `json:"startAt"`
@@ -969,7 +1000,7 @@ func releaseLocked(d *eventData, r *Reservation, now time.Time) {
 }
 
 // ReserveUpload atomically and durably grants one upload slot if
-// uploaded + reserved < max, counted on the quota of r.Source. The reservation is on disk (fsynced)
+// uploaded + reserved < max (or max is Unlimited), counted on the quota of r.Source. The reservation is on disk (fsynced)
 // before this returns, i.e. before any presigned URL can be issued.
 // Expired reservations of the same session are released first.
 func (s *Store) ReserveUpload(eventID, sessionID string, r Reservation, ttl time.Duration, max int) (Reservation, GuestSession, []Reservation, error) {
@@ -992,7 +1023,7 @@ func (s *Store) ReserveUpload(eventID, sessionID string, r Reservation, ttl time
 			}
 		}
 		uploaded, reserved := g.counters(r.Source)
-		if *uploaded+*reserved >= max {
+		if max != Unlimited && *uploaded+*reserved >= max {
 			if len(expired) > 0 {
 				return commitErr{ErrQuotaExceeded}
 			}

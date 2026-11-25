@@ -31,7 +31,7 @@ import {
   type PrivateEvent,
 } from "@/lib/api";
 import styles from "../admin/admin.module.css";
-import { isWedding } from "@/lib/format";
+import { isWedding, quotaText } from "@/lib/format";
 
 type Tab = "overview" | "photos" | "screen" | "settings";
 
@@ -288,7 +288,7 @@ function Overview({
         </div>
         <p className="muted">
           {ev.booth.open
-            ? `Tamu dapat check-in dan mengirim hingga ${ev.maxPhotosPerGuest} kolase photobooth${ev.maxMomentsPerGuest ? ` dan ${ev.maxMomentsPerGuest} foto momen` : ""} per perangkat.`
+            ? `Tamu dapat check-in dan mengirim ${quotaText(ev.maxPhotosPerGuest, "kolase photobooth")}${ev.maxMomentsPerGuest ? ` dan ${quotaText(ev.maxMomentsPerGuest, "foto momen")}` : ""} per perangkat.`
             : ev.booth.message}
         </p>
         <p className="hint">

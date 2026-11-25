@@ -84,8 +84,9 @@ export interface WeddingEvent {
   status: EventStatus;
   photoboothOpen: boolean;
   galleryVisibility: GalleryVisibility;
+  /** photobooth collages per device; -1 = unlimited */
   maxPhotosPerGuest: number;
-  /** moment photos per device (a separate quota); older servers omit it */
+  /** moment photos per device (a separate quota, -1 = unlimited); older servers omit it */
   maxMomentsPerGuest?: number;
   /** what an empty guest wish becomes (the organiser's text or a built-in greeting) */
   defaultWishes?: string;
@@ -167,8 +168,9 @@ export interface GuestSession {
   booth: BoothState;
   uploadedCount: number;
   reservedCount: number;
+  /** -1 = unlimited */
   maxPhotos: number;
-  /** photobooth collages left on this device */
+  /** photobooth collages left on this device (-1 = unlimited) */
   remaining: number;
   maxMoments?: number;
   /** moment photos left on this device (separate quota) */
@@ -227,6 +229,9 @@ export interface EventInput {
   mapsUrl: string;
   hashtag: string;
   defaultWishes?: string;
+  /** per-device limits: one of QUOTA_CHOICES (-1 = unlimited) */
+  photoLimit?: number;
+  momentLimit?: number;
   theme: ThemeId;
   startAt: string;
   endAt: string;
@@ -485,3 +490,7 @@ export function openStream(scope: "gallery" | "wall" | "host", slug?: string) {
   if (slug) params.set("slug", slug);
   return new EventSource(`${API_BASE}/api/stream?${params}`, { withCredentials: true });
 }
+
+/** Per-device limits an admin may pick for an event (-1 = unlimited). */
+export const UNLIMITED = -1;
+export const QUOTA_CHOICES = [5, 10, 30, 100, 500, UNLIMITED] as const;

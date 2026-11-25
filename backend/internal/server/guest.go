@@ -214,8 +214,9 @@ type guestSessionView struct {
 }
 
 func (s *Server) guestView(gs store.GuestSession, ev store.Event) guestSessionView {
-	rem := max(0, store.MaxPhotosPerGuest-gs.UploadedCount-gs.ReservedCount)
-	momRem := max(0, store.MaxMomentsPerGuest-gs.MomentsUploaded-gs.MomentsReserved)
+	maxPhotos, maxMoments := ev.QuotaFor("photobooth"), ev.QuotaFor(store.SourceMoment)
+	rem := store.Remaining(maxPhotos, gs.UploadedCount+gs.ReservedCount)
+	momRem := store.Remaining(maxMoments, gs.MomentsUploaded+gs.MomentsReserved)
 	locValid := gs.LastLocationCheckAt.Add(s.cfg.LocationMaxAge)
 	if s.cfg.GeofenceOff {
 		locValid = gs.ExpiresAt
@@ -225,9 +226,9 @@ func (s *Server) guestView(gs store.GuestSession, ev store.Event) guestSessionVi
 		Booth:              s.booth(ev),
 		UploadedCount:      gs.UploadedCount,
 		ReservedCount:      gs.ReservedCount,
-		MaxPhotos:          store.MaxPhotosPerGuest,
+		MaxPhotos:          maxPhotos,
 		Remaining:          rem,
-		MaxMoments:         store.MaxMomentsPerGuest,
+		MaxMoments:         maxMoments,
 		MomentsRemaining:   momRem,
 		LocationValidUntil: locValid,
 		LocationRequired:   !s.cfg.GeofenceOff,
@@ -353,14 +354,14 @@ func (s *Server) uploadAuthorize(w http.ResponseWriter, r *http.Request) {
 		Wishes:      wishes,
 		Filter:      filter,
 		Source:      photoSource(in.Mode),
-	}, s.cfg.ReservationTTL, store.QuotaFor(photoSource(in.Mode)))
+	}, s.cfg.ReservationTTL, ev.QuotaFor(photoSource(in.Mode)))
 	for _, x := range expired {
 		_ = s.storage.Delete(r.Context(), x.ObjectKey)
 	}
 	if errors.Is(err, store.ErrQuotaExceeded) {
-		msg := fmt.Sprintf("Batas %d kolase photobooth per perangkat sudah tercapai. Terima kasih sudah ikut meramaikan!", store.MaxPhotosPerGuest)
+		msg := fmt.Sprintf("Batas %d kolase photobooth per perangkat sudah tercapai. Terima kasih sudah ikut meramaikan!", ev.QuotaFor("photobooth"))
 		if photoSource(in.Mode) == store.SourceMoment {
-			msg = fmt.Sprintf("Batas %d foto momen per perangkat sudah tercapai. Terima kasih sudah berbagi momen!", store.MaxMomentsPerGuest)
+			msg = fmt.Sprintf("Batas %d foto momen per perangkat sudah tercapai. Terima kasih sudah berbagi momen!", ev.QuotaFor(store.SourceMoment))
 		}
 		writeErr(w, http.StatusConflict, "QUOTA_EXCEEDED", msg)
 		return

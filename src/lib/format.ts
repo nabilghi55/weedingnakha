@@ -89,3 +89,8 @@ export function initials(name: string) {
     .map((w) => w[0]?.toUpperCase())
     .join("");
 }
+
+/** "hingga 5 kolase photobooth" or "kolase photobooth tanpa batas" for a per-device limit (-1 = unlimited). */
+export function quotaText(n: number, unit: string): string {
+  return n < 0 ? `${unit} tanpa batas` : `hingga ${n} ${unit}`;
+}

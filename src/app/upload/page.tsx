@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Camera, Images, QrCode } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import styles from "./upload.module.css";
-import { eventName } from "@/lib/format";
+import { eventName, quotaText } from "@/lib/format";
 
 /**
  * The old open upload route. Uploading from here is disabled on purpose:
@@ -15,7 +15,7 @@ export default function UploadInfoPage() {
   const { event, eventScoped } = useApp();
   const steps = [
     { icon: QrCode, text: "Scan QR photobooth yang tampil di lokasi acara." },
-    { icon: Camera, text: `Ambil foto langsung dari kamera, pilih bingkai & filter, lalu kirim (maks. ${event.maxPhotosPerGuest} kolase photobooth${event.maxMomentsPerGuest ? ` + ${event.maxMomentsPerGuest} foto momen` : ""} per HP).` },
+    { icon: Camera, text: `Ambil foto langsung dari kamera, pilih bingkai & filter, lalu kirim (${quotaText(event.maxPhotosPerGuest, "kolase photobooth")}${event.maxMomentsPerGuest ? ` + ${quotaText(event.maxMomentsPerGuest, "foto momen")}` : ""} per HP).` },
   ];
 
   return (

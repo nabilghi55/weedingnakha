@@ -224,3 +224,24 @@ func TestReferencedKeys(t *testing.T) {
 		t.Fatalf("keys: %v", keys)
 	}
 }
+
+// An event's own per-device limit replaces the default; Unlimited never blocks.
+func TestEventQuota(t *testing.T) {
+	if q := (Event{}).QuotaFor("photobooth"); q != MaxPhotosPerGuest {
+		t.Fatalf("default photobooth quota = %d", q)
+	}
+	if q := (Event{MomentLimit: 30}).QuotaFor(SourceMoment); q != 30 {
+		t.Fatalf("moment quota = %d", q)
+	}
+	if r := Remaining(Unlimited, 1000); r != Unlimited {
+		t.Fatalf("unlimited remaining = %d", r)
+	}
+	s, _ := Open(t.TempDir(), nil)
+	ev, _ := s.CreateEvent(Event{ID: NewEventID(), Slug: "x", PhotoLimit: Unlimited})
+	gs, _ := s.CheckinGuest(ev.ID, "dev", "tok", time.Now().Add(time.Hour), 1, 1)
+	for i := 0; i < MaxPhotosPerGuest*3; i++ {
+		if _, _, _, err := s.ReserveUpload(ev.ID, gs.ID, Reservation{ID: NewID(), ObjectKey: "k"}, time.Minute, ev.QuotaFor("photobooth")); err != nil {
+			t.Fatalf("unlimited reserve %d: %v", i, err)
+		}
+	}
+}
